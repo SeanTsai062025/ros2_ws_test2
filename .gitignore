@@ -1,0 +1,8 @@
+/build/
+/install/
+/log/
+.vscode/
+.DS_Store
+*~
+*.swp
+*.swo
