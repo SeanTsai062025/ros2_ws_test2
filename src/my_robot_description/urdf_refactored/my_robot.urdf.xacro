@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="my_robot">
+
+  <!-- Define asset path variable -->
+  <xacro:arg name="asset_path" default="$(find dexter_simplify)/assets" />
+  <xacro:property name="asset_prefix" value="$(arg asset_path)" />
+
+  <!-- Include all component files -->
+  <xacro:include filename="$(find my_robot_description)/urdf_refactored/common_properties.xacro" />
+  <xacro:include filename="$(find my_robot_description)/urdf_refactored/arm.xacro" />
+  <xacro:include filename="$(find my_robot_description)/urdf_refactored/gripper.xacro" />
+  <xacro:include filename="$(find my_robot_description)/urdf_refactored/my_robot.ros2_control.xacro" />
+
+  <!-- Tool link - intermediate attachment point between arm and gripper -->
+  <link name="tool_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.05"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
+    </inertial>
+  </link>
+
+  <!-- Joint: part6 to tool_link
+       Using fixed joint with standard engineering convention (xyz offset and rpy = 0 0 0)
+       This can be fine-tuned later as needed
+  -->
+  <joint name="part6_tool_joint" type="fixed">
+    <parent link="part6" />
+    <child link="tool_link" />
+    <origin xyz="0 0 0.02" rpy="0 0 0" />
+  </joint>
+
+  <!-- Joint: tool_link to gripper_base_link
+       Fixed joint connecting the gripper module
+  -->
+  <joint name="tool_gripper_joint" type="fixed">
+    <parent link="tool_link" />
+    <child link="gripper_base_link" />
+    <origin xyz="0 0 0" rpy="0 0 0" />
+  </joint>
+
+</robot>

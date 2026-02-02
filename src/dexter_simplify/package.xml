@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>dexter_simplify</name>
+  <version>0.0.0</version>
+  <description>Dexter robot model assets</description>
+  <maintainer email="sean@example.com">Sean</maintainer>
+  <license>MIT</license>
+</package>

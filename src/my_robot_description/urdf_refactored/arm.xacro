@@ -1,0 +1,212 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Base Link -->
+  <link name="base">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.5"/>
+      <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.01"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.07 0.07 0.1" rpy="0 -0 -5.55112e-16"/>
+      <geometry>
+        <mesh filename="file://$(arg asset_path)/base.stl"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.07 0.07 0.1" rpy="0 -0 -5.55112e-16"/>
+      <geometry>
+        <mesh filename="file://$(arg asset_path)/base.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Link part1 -->
+  <link name="part1">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.1"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.021 0.039 -0.0035" rpy="3.14159 -0 -1.5708"/>
+      <geometry>
+        <mesh filename="file://$(arg asset_path)/part1.stl"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0.021 0.039 -0.0035" rpy="3.14159 -0 -1.5708"/>
+      <geometry>
+        <mesh filename="file://$(arg asset_path)/part1.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Link part2 -->
+  <link name="part2">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.1"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.0855095 0.0908742 -0.007" rpy="-2.64571e-15 -5.70983e-15 -2.15669"/>
+      <geometry>
+        <mesh filename="file://$(arg asset_path)/part2.stl"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0.0855095 0.0908742 -0.007" rpy="-2.64571e-15 -5.70983e-15 -2.15669"/>
+      <geometry>
+        <mesh filename="file://$(arg asset_path)/part2.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Link part3 -->
+  <link name="part3">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.1"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.0250016 -0.0454414 -0.0095" rpy="1.5708 5.58219e-15 -3.05124"/>
+      <geometry>
+        <mesh filename="file://$(arg asset_path)/part3.stl"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.0250016 -0.0454414 -0.0095" rpy="1.5708 5.58219e-15 -3.05124"/>
+      <geometry>
+        <mesh filename="file://$(arg asset_path)/part3.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Link part4 -->
+  <link name="part4">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.1"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.021 -0.021 -0.0005" rpy="3.14159 -1.5708 0"/>
+      <geometry>
+        <mesh filename="file://$(arg asset_path)/part4.stl"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.021 -0.021 -0.0005" rpy="3.14159 -1.5708 0"/>
+      <geometry>
+        <mesh filename="file://$(arg asset_path)/part4.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Link part5 -->
+  <link name="part5">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.1"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.0453957 -0.0161248 0.00678111" rpy="-1.5708 -2.94915e-16 -2.48366"/>
+      <geometry>
+        <mesh filename="file://$(arg asset_path)/part5.stl"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.0453957 -0.0161248 0.00678111" rpy="-1.5708 -2.94915e-16 -2.48366"/>
+      <geometry>
+        <mesh filename="file://$(arg asset_path)/part5.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Link part6 -->
+  <link name="part6">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.1"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 -6.93889e-18" rpy="-3.14159 -3.97341e-19 2.55681e-19"/>
+      <geometry>
+        <mesh filename="file://$(arg asset_path)/part6.stl"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -6.93889e-18" rpy="-3.14159 -3.97341e-19 2.55681e-19"/>
+      <geometry>
+        <mesh filename="file://$(arg asset_path)/part6.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Joint from base to part1 -->
+  <joint name="base" type="revolute">
+    <origin xyz="-3.05311e-16 -7.91034e-16 0.108" rpy="3.14159 -0 -5.55112e-16"/>
+    <parent link="base"/>
+    <child link="part1"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
+  </joint>
+
+  <!-- Joint from part1 to part2 -->
+  <joint name="part1" type="revolute">
+    <origin xyz="3.00454e-16 0.04 -0.032557" rpy="-1.5708 -0 3.14159"/>
+    <parent link="part1"/>
+    <child link="part2"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
+  </joint>
+
+  <!-- Joint from part2 to part3 -->
+  <joint name="part2" type="revolute">
+    <origin xyz="0.0564001 0.0849884 0.0615" rpy="3.14159 -5.70983e-15 -2.15669"/>
+    <parent link="part2"/>
+    <child link="part3"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
+  </joint>
+
+  <!-- Joint from part3 to part4 -->
+  <joint name="part3" type="revolute">
+    <origin xyz="-0.05133 0.0124189 0.021557" rpy="-1.5708 5.58219e-15 -3.05124"/>
+    <parent link="part3"/>
+    <child link="part4"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
+  </joint>
+
+  <!-- Joint from part4 to part5 -->
+  <joint name="part4" type="revolute">
+    <origin xyz="-5.55112e-17 -0.029 -0.057529" rpy="-1.5708 -1.5708 0"/>
+    <parent link="part4"/>
+    <child link="part5"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
+  </joint>
+
+  <!-- Joint from part5 to part6 -->
+  <joint name="part5" type="revolute">
+    <origin xyz="-0.0490579 -0.0379121 0.028" rpy="-1.5708 -0.025367 -0.91286"/>
+    <parent link="part5"/>
+    <child link="part6"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
+  </joint>
+
+</robot>
