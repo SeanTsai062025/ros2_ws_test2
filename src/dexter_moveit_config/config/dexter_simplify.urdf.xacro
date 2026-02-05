@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="dexter_simplify">
+    <xacro:arg name="initial_positions_file" default="initial_positions.yaml" />
+
+    <!-- Import dexter_simplify urdf file -->
+    <xacro:include filename="$(find dexter_description)/urdf_dexter/robot.urdf" />
+
+    <!-- Import control_xacro -->
+    <xacro:include filename="dexter_simplify.ros2_control.xacro" />
+
+
+    <xacro:dexter_simplify_ros2_control name="FakeSystem" initial_positions_file="$(arg initial_positions_file)"/>
+
+</robot>

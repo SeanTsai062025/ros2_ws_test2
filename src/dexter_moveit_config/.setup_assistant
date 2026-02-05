@@ -1,0 +1,27 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: dexter_description
+    relative_path: urdf_dexter/robot.urdf
+  srdf:
+    relative_path: config/dexter_simplify.srdf
+  package_settings:
+    author_name: SeanTsai
+    author_email: seantsai06@gmial.com
+    generated_timestamp: 1770253734
+  control_xacro:
+    command:
+      - position
+      - velocity
+    state:
+      - position
+      - velocity
+  modified_urdf:
+    xacros:
+      - control_xacro
+  control_xacro:
+    command:
+      - position
+      - velocity
+    state:
+      - position
+      - velocity

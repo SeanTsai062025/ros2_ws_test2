@@ -170,6 +170,18 @@
       </geometry>
     </collision>
   </link>
+  <!-- tool_link -->
+  <link name="tool_link"/>
+
+<!--.........................-->
+
+  <!-- Joint from part6 to tool_link -->
+  <joint name="hand_tool_joint" type="fixed">
+    <parent link="part6" />
+    <child link="tool_link" />
+    <origin xyz="0 0 -0.03" rpy="3.14159 0 0" />
+  </joint>
+
   <!-- Joint from part5 to part6 -->
   <joint name="part5" type="revolute">
     <origin xyz="-0.0490579 -0.0379121 0.028" rpy="-1.5708 -0.025367 -0.91286"/>
