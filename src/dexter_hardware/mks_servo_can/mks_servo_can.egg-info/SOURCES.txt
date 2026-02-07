@@ -1,6 +1,0 @@
-setup.py
-mks_servo_can.egg-info/PKG-INFO
-mks_servo_can.egg-info/SOURCES.txt
-mks_servo_can.egg-info/dependency_links.txt
-mks_servo_can.egg-info/requires.txt
-mks_servo_can.egg-info/top_level.txt
