@@ -1,0 +1,233 @@
+<?xml version="1.0" ?>
+<!-- Generated using onshape-to-robot -->
+<!-- Onshape https://cad.onshape.com/documents/dc3877dd7aeaeff0d6c9582a/w/7e4ff4bdb4907839a9954149/e/7f63cf5cd2085b46ecf2bc2e -->
+<robot name="dexter_simplify">
+  <!-- Link base -->
+  <link name="base">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1e-09"/>
+      <inertia ixx="1e-09" ixy="0" ixz="0" iyy="1e-09" iyz="0" izz="1e-09"/>
+    </inertial>
+    <!-- Part base -->
+    <visual>
+      <origin xyz="-0.07 0.07 0.1" rpy="0 -0 -5.55112e-16"/>
+      <geometry>
+        <mesh filename="package://dexter_description/urdf_dexter/assets/base.stl"/>
+      </geometry>
+      <material name="base_material">
+        <color rgba="0.647059 0.647059 0.647059 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.07 0.07 0.1" rpy="0 -0 -5.55112e-16"/>
+      <geometry>
+        <mesh filename="package://dexter_description/urdf_dexter/assets/base.stl"/>
+      </geometry>
+    </collision>
+  </link>
+  <!-- Link part1 -->
+  <link name="part1">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1e-09"/>
+      <inertia ixx="1e-09" ixy="0" ixz="0" iyy="1e-09" iyz="0" izz="1e-09"/>
+    </inertial>
+    <!-- Part part1 -->
+    <visual>
+      <origin xyz="0.021 0.039 -0.0035" rpy="3.14159 -0 -1.5708"/>
+      <geometry>
+        <mesh filename="package://dexter_description/urdf_dexter/assets/part1.stl"/>
+      </geometry>
+      <material name="part1_material">
+        <color rgba="0.701961 0.682353 0.623529 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.021 0.039 -0.0035" rpy="3.14159 -0 -1.5708"/>
+      <geometry>
+        <mesh filename="package://dexter_description/urdf_dexter/assets/part1.stl"/>
+      </geometry>
+    </collision>
+  </link>
+  <!-- Link part2 -->
+  <link name="part2">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1e-09"/>
+      <inertia ixx="1e-09" ixy="0" ixz="0" iyy="1e-09" iyz="0" izz="1e-09"/>
+    </inertial>
+    <!-- Part part2 -->
+    <visual>
+      <origin xyz="0.0855095 0.0908742 -0.007" rpy="-2.64571e-15 -5.70983e-15 -2.15669"/>
+      <geometry>
+        <mesh filename="package://dexter_description/urdf_dexter/assets/part2.stl"/>
+      </geometry>
+      <material name="part2_material">
+        <color rgba="0.917647 0.917647 0.917647 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0855095 0.0908742 -0.007" rpy="-2.64571e-15 -5.70983e-15 -2.15669"/>
+      <geometry>
+        <mesh filename="package://dexter_description/urdf_dexter/assets/part2.stl"/>
+      </geometry>
+    </collision>
+  </link>
+  <!-- Link part3 -->
+  <link name="part3">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1e-09"/>
+      <inertia ixx="1e-09" ixy="0" ixz="0" iyy="1e-09" iyz="0" izz="1e-09"/>
+    </inertial>
+    <!-- Part part3 -->
+    <visual>
+      <origin xyz="-0.0250016 -0.0454414 -0.0095" rpy="1.5708 5.58219e-15 -3.05124"/>
+      <geometry>
+        <mesh filename="package://dexter_description/urdf_dexter/assets/part3.stl"/>
+      </geometry>
+      <material name="part3_material">
+        <color rgba="0.701961 0.682353 0.623529 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.0250016 -0.0454414 -0.0095" rpy="1.5708 5.58219e-15 -3.05124"/>
+      <geometry>
+        <mesh filename="package://dexter_description/urdf_dexter/assets/part3.stl"/>
+      </geometry>
+    </collision>
+  </link>
+  <!-- Link part4 -->
+  <link name="part4">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1e-09"/>
+      <inertia ixx="1e-09" ixy="0" ixz="0" iyy="1e-09" iyz="0" izz="1e-09"/>
+    </inertial>
+    <!-- Part part4 -->
+    <visual>
+      <origin xyz="-0.021 -0.021 -0.0005" rpy="3.14159 -1.5708 0"/>
+      <geometry>
+        <mesh filename="package://dexter_description/urdf_dexter/assets/part4.stl"/>
+      </geometry>
+      <material name="part4_material">
+        <color rgba="0.701961 0.701961 0.701961 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.021 -0.021 -0.0005" rpy="3.14159 -1.5708 0"/>
+      <geometry>
+        <mesh filename="package://dexter_description/urdf_dexter/assets/part4.stl"/>
+      </geometry>
+    </collision>
+  </link>
+  <!-- Link part5 -->
+  <link name="part5">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1e-09"/>
+      <inertia ixx="1e-09" ixy="0" ixz="0" iyy="1e-09" iyz="0" izz="1e-09"/>
+    </inertial>
+    <!-- Part part5 -->
+    <visual>
+      <origin xyz="-0.0453957 -0.0161248 0.00678111" rpy="-1.5708 -2.94915e-16 -2.48366"/>
+      <geometry>
+        <mesh filename="package://dexter_description/urdf_dexter/assets/part5.stl"/>
+      </geometry>
+      <material name="part5_material">
+        <color rgba="0.8 0.8 0.8 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.0453957 -0.0161248 0.00678111" rpy="-1.5708 -2.94915e-16 -2.48366"/>
+      <geometry>
+        <mesh filename="package://dexter_description/urdf_dexter/assets/part5.stl"/>
+      </geometry>
+    </collision>
+  </link>
+  <!-- Link part6 -->
+  <link name="part6">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1e-09"/>
+      <inertia ixx="1e-09" ixy="0" ixz="0" iyy="1e-09" iyz="0" izz="1e-09"/>
+    </inertial>
+    <!-- Part part6 -->
+    <visual>
+      <origin xyz="0 0 -6.93889e-18" rpy="-3.14159 -3.97341e-19 2.55681e-19"/>
+      <geometry>
+        <mesh filename="package://dexter_description/urdf_dexter/assets/part6.stl"/>
+      </geometry>
+      <material name="part6_material">
+        <color rgba="0.701961 0.682353 0.623529 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -6.93889e-18" rpy="-3.14159 -3.97341e-19 2.55681e-19"/>
+      <geometry>
+        <mesh filename="package://dexter_description/urdf_dexter/assets/part6.stl"/>
+      </geometry>
+    </collision>
+  </link>
+  <!-- tool_link -->
+  <link name="tool_link"/>
+
+<!--.........................-->
+
+  <!-- Joint from part6 to tool_link -->
+  <joint name="hand_tool_joint" type="fixed">
+    <parent link="part6" />
+    <child link="tool_link" />
+    <origin xyz="0 0 -0.03" rpy="3.14159 0 0" />
+  </joint>
+
+  <!-- Joint from part5 to part6 -->
+  <joint name="part5" type="revolute">
+    <origin xyz="-0.0490579 -0.0379121 0.028" rpy="-1.5708 -0.025367 -0.91286"/>
+    <parent link="part5"/>
+    <child link="part6"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
+  </joint>
+  <!-- Joint from part4 to part5 -->
+  <joint name="part4" type="revolute">
+    <origin xyz="-5.55112e-17 -0.029 -0.057529" rpy="-1.5708 -1.5708 0"/>
+    <parent link="part4"/>
+    <child link="part5"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
+  </joint>
+  <!-- Joint from part3 to part4 -->
+  <joint name="part3" type="revolute">
+    <origin xyz="-0.05133 0.0124189 0.021557" rpy="-1.5708 5.58219e-15 -3.05124"/>
+    <parent link="part3"/>
+    <child link="part4"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
+  </joint>
+  <!-- Joint from part2 to part3 -->
+  <joint name="part2" type="revolute">
+    <origin xyz="0.0564001 0.0849884 0.0615" rpy="3.14159 -5.70983e-15 -2.15669"/>
+    <parent link="part2"/>
+    <child link="part3"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
+  </joint>
+  <!-- Joint from part1 to part2 -->
+  <joint name="part1" type="revolute">
+    <origin xyz="3.00454e-16 0.04 -0.032557" rpy="-1.5708 -0 3.14159"/>
+    <parent link="part1"/>
+    <child link="part2"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
+  </joint>
+  <!-- Joint from base to part1 -->
+  <joint name="base" type="revolute">
+    <origin xyz="-3.05311e-16 -7.91034e-16 0.108" rpy="3.14159 -0 -5.55112e-16"/>
+    <parent link="base"/>
+    <child link="part1"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
+  </joint>
+</robot>

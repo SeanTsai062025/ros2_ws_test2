@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+
+  <!-- Launch arguments -->
+  <arg name="bitrate" default="500000" />
+
+  <!-- Motor controller node -->
+  <node pkg="dexter_hardware" exec="motor_controller_node.py" name="motor_controller" output="screen">
+    <!-- CAN interface configuration -->
+    <param name="can_interface" value="can0" />
+    <param name="bitrate" value="$(var bitrate)" />
+  </node>
+
+</launch>
