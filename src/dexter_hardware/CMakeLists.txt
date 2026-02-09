@@ -14,12 +14,19 @@ ament_python_install_package(dexter_hardware)
 
 install(PROGRAMS
   scripts/motor_controller_node.py
+  scripts/dexter_hardware_bridge.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
 install(
   DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
+)
+
+install(
+  DIRECTORY config
+  DESTINATION share/${PROJECT_NAME}
+  OPTIONAL
 )
 
 ament_package()

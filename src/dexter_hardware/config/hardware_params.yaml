@@ -1,0 +1,56 @@
+# Dexter Hardware Bridge Configuration
+# Motor configuration for Servo42D drivers
+
+dexter_hardware_bridge:
+  ros__parameters:
+    # CAN bus settings
+    can_interface: "can0"
+    can_bitrate: 500000
+    
+    # Control loop rate (should match ros2_control update_rate)
+    control_rate: 100.0
+    
+    # Motor configurations
+    # Each motor maps a URDF joint name to a CAN ID
+    motors:
+      base:
+        can_id: 1
+        encoder_ticks_per_rev: 16384  # 14-bit encoder
+        gear_ratio: 1.0               # Motor:Joint ratio
+        direction: 1                  # 1 or -1
+        max_rpm: 300                  # Safety limit
+        
+      part1:
+        can_id: 2
+        encoder_ticks_per_rev: 16384
+        gear_ratio: 1.0
+        direction: 1
+        max_rpm: 300
+        
+      part2:
+        can_id: 3
+        encoder_ticks_per_rev: 16384
+        gear_ratio: 1.0
+        direction: 1
+        max_rpm: 300
+        
+      part3:
+        can_id: 4
+        encoder_ticks_per_rev: 16384
+        gear_ratio: 1.0
+        direction: 1
+        max_rpm: 300
+        
+      part4:
+        can_id: 5
+        encoder_ticks_per_rev: 16384
+        gear_ratio: 1.0
+        direction: 1
+        max_rpm: 300
+        
+      part5:
+        can_id: 6
+        encoder_ticks_per_rev: 16384
+        gear_ratio: 1.0
+        direction: 1
+        max_rpm: 300
