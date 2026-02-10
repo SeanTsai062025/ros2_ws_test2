@@ -146,6 +146,15 @@ class DexterHardwareBridge(Node):
         """
         Send Speed Mode command (0xF6) to motor
         
+        MKS protocol for 0xF6 speed mode (from mks-servo-can-main library):
+          Data: [0xF6] [DIR | SPEED_H] [SPEED_L] [ACC] [CRC]
+          - DIR: 0x80 = CW, 0x00 = CCW
+          - SPEED_H: high nibble of speed (0-0x0F)
+          - SPEED_L: low byte of speed
+          - ACC: acceleration 0-255
+          - CRC: (CAN_ID + sum(data_bytes)) & 0xFF
+          Total frame: 5 bytes (4 data + 1 CRC)
+        
         Args:
             motor_id: CAN ID of motor
             velocity_rpm: Desired velocity in RPM (positive = CCW, negative = CW)
@@ -155,22 +164,28 @@ class DexterHardwareBridge(Node):
         speed = min(abs(velocity_rpm), 3000)
         speed_int = int(speed)
         
-        # Determine direction
-        direction_bit = 0x80 if velocity_rpm < 0 else 0x00  # CW if negative
+        # Determine direction: 0x80 = CW (negative), 0x00 = CCW (positive)
+        direction_bit = 0x80 if velocity_rpm < 0 else 0x00
         
-        # Build command data
+        # Build command data — NO padding bytes!
+        # Must match library: [0xF6, dir|speed_h, speed_l, acc]
         data = [
             MksCommands.RUN_MOTOR_SPEED_MODE_COMMAND.value,  # 0xF6
-            direction_bit | ((speed_int >> 8) & 0x0F),  # Dir + Speed high nibble
-            speed_int & 0xFF,                           # Speed low byte
-            acceleration & 0xFF,                        # Acceleration
-            0x00, 0x00, 0x00                            # Padding
+            direction_bit | ((speed_int >> 8) & 0x0F),       # Dir + Speed high nibble
+            speed_int & 0xFF,                                # Speed low byte
+            acceleration & 0xFF,                             # Acceleration
         ]
         
         msg = self.create_can_message(motor_id, data)
         
         try:
             self.bus.send(msg)
+            # Debug: log frame details occasionally
+            if self.loop_count % 100 == 0 and speed_int > 0:
+                hex_data = ' '.join(f'{b:02X}' for b in msg.data)
+                self.get_logger().info(
+                    f'CAN TX: ID=0x{motor_id:03X} DLC={len(msg.data)} Data=[{hex_data}]'
+                )
         except can.CanError as e:
             self.get_logger().error(f'Failed to send velocity command to motor {motor_id}: {e}')
 
@@ -274,6 +289,12 @@ class DexterHardwareBridge(Node):
                 
                 # Send command
                 self.send_velocity_command(motor.can_id, velocity_rpm)
+                
+                # Debug logging for non-zero commands
+                if self.loop_count % 100 == 0 and abs(velocity_rpm) > 0.01:
+                    self.get_logger().info(
+                        f'Motor {motor.can_id} ({joint_name}): {velocity_rad_s:.3f} rad/s = {velocity_rpm:.1f} RPM'
+                    )
         
         # Log occasionally
         if self.loop_count % 500 == 0:  # Every 5 seconds at 100Hz
