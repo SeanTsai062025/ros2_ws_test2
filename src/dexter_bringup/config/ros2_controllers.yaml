@@ -18,8 +18,18 @@ arm_controller:
       - part3
       - part4
       - part5
+
+    # The JTC takes position commands and writes them to the mock hardware.
+    # It also publishes the executing trajectory on /arm_controller/joint_trajectory
+    # which our hardware bridge subscribes to for real motor control.
     command_interfaces:
       - position
     state_interfaces:
       - position
+      - velocity
+
+    # Allow the trajectory to end with non-zero velocity (for smooth blending)
     allow_nonzero_velocity_at_trajectory_end: true
+
+    # Publish the executing trajectory so the hardware bridge can intercept it
+    state_publish_rate: 100.0
