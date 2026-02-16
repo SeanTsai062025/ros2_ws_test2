@@ -19,9 +19,10 @@ arm_controller:
       - part4
       - part5
 
-    # The JTC takes position commands and writes them to the mock hardware.
-    # It also publishes the executing trajectory on /arm_controller/joint_trajectory
-    # which our hardware bridge subscribes to for real motor control.
+    # The JTC streams position commands to mock hardware.
+    # Our hardware bridge reads reference.positions from
+    # /arm_controller/controller_state at 100 Hz and down-samples
+    # to 30 Hz 0xFE absolute-position CAN commands.
     command_interfaces:
       - position
     state_interfaces:
@@ -31,5 +32,5 @@ arm_controller:
     # Allow the trajectory to end with non-zero velocity (for smooth blending)
     allow_nonzero_velocity_at_trajectory_end: true
 
-    # Publish the executing trajectory so the hardware bridge can intercept it
+    # Publish controller state at 100 Hz — bridge reads reference.positions
     state_publish_rate: 100.0

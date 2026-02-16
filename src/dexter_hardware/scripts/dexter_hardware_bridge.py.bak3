@@ -1,0 +1,402 @@
+#!/usr/bin/env python3
+"""
+Dexter Hardware Bridge v2 - Full MoveIt to Servo42D Pipeline.
+
+Subscribes to /arm_controller/controller_state from the JTC.
+The JTC interpolates the trajectory at 100Hz and publishes
+reference.velocities (the planned velocity at this instant).
+We send that velocity directly to motors via 0xF6 speed-mode CAN.
+We read encoders via 0x31 and publish /joint_states.
+"""
+
+import rclpy
+from rclpy.node import Node
+import can
+import sys
+import os
+import math
+from typing import Dict, Optional
+from dataclasses import dataclass
+
+from sensor_msgs.msg import JointState
+from std_msgs.msg import Float64MultiArray
+from control_msgs.msg import JointTrajectoryControllerState
+
+# Add mks-servo-can-main to path
+workspace_root = '/home/sean/dexter_test_2/ros2_ws'
+mks_path = os.path.join(workspace_root, 'src/dexter_hardware/mks-servo-can-main')
+if mks_path not in sys.path:
+    sys.path.insert(0, mks_path)
+
+from mks_servo_can.mks_enums import MksCommands
+
+JOINT_NAMES = ['base', 'part1', 'part2', 'part3', 'part4', 'part5']
+
+
+@dataclass
+class MotorConfig:
+    joint_name: str
+    can_id: int
+    encoder_ticks_per_rev: int = 16384
+    gear_ratio: float = 1.0
+    # cmd_direction:  1 → positive rad/s sends CCW (dir_bit=0x00)
+    #                -1 → positive rad/s sends CW  (dir_bit=0x80)
+    cmd_direction: int = 1
+    # enc_direction:  1 → positive encoder ticks = positive rad
+    #                -1 → positive encoder ticks = negative rad
+    enc_direction: int = 1
+    max_rpm: int = 300
+
+
+class DexterHardwareBridge(Node):
+
+    def __init__(self):
+        super().__init__('dexter_hardware_bridge')
+
+        # Parameters
+        self.declare_parameter('can_interface', 'can0')
+        self.declare_parameter('can_bitrate', 500000)
+        self.declare_parameter('control_rate', 100.0)
+        self.declare_parameter('use_sim', False)
+        # Which joints have a motor physically connected on CAN.
+        # Only these will receive speed commands / encoder reads.
+        self.declare_parameter('connected_joints',
+                               ['part3', 'part5'])
+
+        self.use_sim = self.get_parameter('use_sim').value
+        self.dt = 1.0 / self.get_parameter('control_rate').value
+        self._connected = set(
+            self.get_parameter('connected_joints').value)
+
+        # Motor map  (set cmd_direction & enc_direction per motor wiring)
+        # Motor 6: CCW→negative ticks, CW→positive ticks (encoder inverted)
+        self.motors = {
+            'base':  MotorConfig(joint_name='base',  can_id=1),
+            'part1': MotorConfig(joint_name='part1', can_id=2),
+            'part2': MotorConfig(joint_name='part2', can_id=3),
+            'part3': MotorConfig(joint_name='part3', can_id=4),
+            'part4': MotorConfig(joint_name='part4', can_id=5),
+            'part5': MotorConfig(joint_name='part5', can_id=6,
+                                 cmd_direction=-1, enc_direction=1),
+        }
+
+        # State
+        self.joint_positions = {n: 0.0 for n in JOINT_NAMES}
+        self.joint_velocities = {n: 0.0 for n in JOINT_NAMES}
+        self._ref_velocities = {n: 0.0 for n in JOINT_NAMES}
+        self._manual_mode = False
+        self._manual_vels = {n: 0.0 for n in JOINT_NAMES}
+        self._jtc_active = False
+        self._encoder_read_index = 0  # round-robin: read 1 motor per tick
+        self._velocity_log = []  # capture full velocity profile
+        # Track last sent integer RPM per motor so we only send on change.
+        # Servo42D misbehaves when flooded with 100Hz identical speed commands.
+        self._last_sent_rpm = {n: 0 for n in JOINT_NAMES}
+
+        # CAN bus
+        self.bus = None
+        if not self.use_sim:
+            iface = self.get_parameter('can_interface').value
+            baud = self.get_parameter('can_bitrate').value
+            try:
+                self.bus = can.interface.Bus(
+                    interface='socketcan', channel=iface, bitrate=baud)
+                self.get_logger().info(
+                    'CAN bus ready: {} @ {} bps'.format(iface, baud))
+            except Exception as e:
+                self.get_logger().error('CAN init failed: {}'.format(e))
+                raise
+        else:
+            self.get_logger().info('SIMULATION mode - no CAN hardware')
+
+        # Publisher: encoder feedback on separate topic (diagnostics only).
+        # The joint_state_broadcaster already publishes /joint_states from
+        # mock hardware — we must NOT conflict with it or JTC gets confused.
+        # In sim mode we DO publish /joint_states (no mock hw feedback).
+        if self.use_sim:
+            self.joint_state_pub = self.create_publisher(
+                JointState, '/joint_states', 10)
+        else:
+            self.joint_state_pub = self.create_publisher(
+                JointState, '/encoder_joint_states', 10)
+
+        # Subscriber: JTC controller state (100 Hz from JTC)
+        self.state_sub = self.create_subscription(
+            JointTrajectoryControllerState,
+            '/arm_controller/controller_state',
+            self._on_jtc_state,
+            10)
+
+        # Subscriber: manual velocity override for testing
+        self.vel_sub = self.create_subscription(
+            Float64MultiArray,
+            '/velocity_controller/commands',
+            self._on_velocity_cmd,
+            10)
+
+        # Control loop
+        self.timer = self.create_timer(self.dt, self._control_loop)
+        self.loop_count = 0
+
+        mode_str = 'SIM' if self.use_sim else 'HARDWARE'
+        rate = self.get_parameter('control_rate').value
+        self.get_logger().info('=' * 50)
+        self.get_logger().info('  Dexter Hardware Bridge v2 - READY')
+        self.get_logger().info('  Mode    : {}'.format(mode_str))
+        self.get_logger().info('  Rate    : {} Hz'.format(rate))
+        self.get_logger().info('  Joints  : {}'.format(JOINT_NAMES))
+        self.get_logger().info('  Connected: {}'.format(
+            sorted(self._connected)))
+        self.get_logger().info('  Listens : /arm_controller/controller_state')
+        self.get_logger().info('            /velocity_controller/commands')
+        js_topic = '/joint_states' if self.use_sim else '/encoder_joint_states'
+        self.get_logger().info('  Publishes: {}'.format(js_topic))
+        self.get_logger().info('=' * 50)
+
+    # -- Callbacks --
+
+    def _on_jtc_state(self, msg):
+        """Extract reference velocities from JTC state at each tick."""
+        names = list(msg.joint_names)
+        ref_vel = msg.reference.velocities
+
+        if len(ref_vel) == 0:
+            return
+
+        any_nonzero = False
+        for i, name in enumerate(names):
+            if name in self._ref_velocities and i < len(ref_vel):
+                self._ref_velocities[name] = ref_vel[i]
+                if abs(ref_vel[i]) > 1e-6:
+                    any_nonzero = True
+
+        if any_nonzero and not self._jtc_active:
+            self._jtc_active = True
+            self._manual_mode = False
+            self.get_logger().info('JTC trajectory active')
+        elif not any_nonzero and self._jtc_active:
+            self._jtc_active = False
+            self.get_logger().info('JTC trajectory idle - holding')
+
+    def _on_velocity_cmd(self, msg):
+        """Manual velocity override for testing without MoveIt."""
+        if len(msg.data) != len(JOINT_NAMES):
+            self.get_logger().warn(
+                'Velocity size mismatch: {} != {}'.format(
+                    len(msg.data), len(JOINT_NAMES)))
+            return
+        self._manual_mode = True
+        for i, name in enumerate(JOINT_NAMES):
+            self._manual_vels[name] = msg.data[i]
+
+    # -- Control Loop (100 Hz) --
+
+    def _control_loop(self):
+        self.loop_count += 1
+
+        # 1. READ: current joint positions (skip during active trajectory
+        #    to avoid CAN collisions with speed commands)
+        if not self.use_sim and not self._jtc_active:
+            self._hw_read_encoders()
+
+        # 2. DETERMINE: velocity commands
+        if self._manual_mode:
+            vel_cmds = dict(self._manual_vels)
+        else:
+            vel_cmds = dict(self._ref_velocities)
+
+        # 3. WRITE: send velocity to motors
+        if self.use_sim:
+            for name in JOINT_NAMES:
+                self.joint_positions[name] += vel_cmds[name] * self.dt
+        else:
+            self._hw_write_velocities(vel_cmds)
+
+        self.joint_velocities = vel_cmds
+
+        # 4. PUBLISH: /joint_states
+        self._publish_joint_states()
+
+        # 5. Periodic log
+        if self.loop_count % 500 == 0:
+            mode = 'SIM' if self.use_sim else 'HW'
+            state = ('MANUAL' if self._manual_mode
+                     else ('JTC' if self._jtc_active else 'IDLE'))
+            pos = ', '.join(
+                '{:+.3f}'.format(self.joint_positions[n]) for n in JOINT_NAMES)
+            vel = ', '.join(
+                '{:+.3f}'.format(vel_cmds[n]) for n in JOINT_NAMES)
+            self.get_logger().info(
+                '[{}/{}] pos=[{}] vel=[{}]'.format(mode, state, pos, vel))
+
+    # -- Hardware CAN --
+
+    def _hw_read_encoders(self):
+        """Round-robin: read only connected motors to avoid CAN errors."""
+        connected_joints = [n for n in JOINT_NAMES if n in self._connected]
+        if not connected_joints:
+            return
+        idx = self._encoder_read_index % len(connected_joints)
+        name = connected_joints[idx]
+        motor = self.motors[name]
+        self._encoder_read_index = (self._encoder_read_index + 1) % len(connected_joints)
+
+        ticks = self._can_read_encoder(motor.can_id)
+        if ticks is not None:
+            revs = ticks / motor.encoder_ticks_per_rev / motor.gear_ratio
+            self.joint_positions[name] = (
+                revs * 2.0 * math.pi * motor.enc_direction)
+
+    def _hw_write_velocities(self, vel_cmds):
+        for name, motor in self.motors.items():
+            if name not in self._connected:
+                continue  # skip motors not physically on the CAN bus
+            vel_rad_s = vel_cmds[name]
+            rpm_float = (vel_rad_s * 60.0) / (2.0 * math.pi) * motor.cmd_direction
+            rpm_float = max(-motor.max_rpm, min(motor.max_rpm, rpm_float))
+
+            # Use round() instead of int() to minimise truncation error.
+            # At 9.55 RPM: int()=9 (-5.8%), round()=10 (+4.7%) — much better avg.
+            int_speed = min(round(abs(rpm_float)), 3000)
+            signed_int_rpm = int_speed if rpm_float >= 0 else -int_speed
+
+            # Only send a CAN frame when the integer RPM actually changes.
+            # The Servo42D overshoots badly when flooded with 100Hz commands.
+            if signed_int_rpm != self._last_sent_rpm[name]:
+                self._can_send_speed(motor.can_id, rpm_float, accel=0)
+                if name == 'part5':
+                    self.get_logger().info(
+                        '  CAN TX M6: rpm_float={:.3f} int_rpm={} (was {})'.format(
+                            rpm_float, signed_int_rpm,
+                            self._last_sent_rpm[name]))
+                self._last_sent_rpm[name] = signed_int_rpm
+
+            # Log every tick for part5 during trajectory
+            if name == 'part5' and (self._jtc_active or abs(vel_rad_s) > 1e-6):
+                int_rpm = int_speed
+                self._velocity_log.append((vel_rad_s, rpm_float, int_rpm))
+                
+                if self.loop_count % 10 == 0:  # summary every 100ms
+                    self.get_logger().info(
+                        '  M6: {:.4f} rad/s -> {:.3f} RPM (int={})'.format(
+                            vel_rad_s, rpm_float, int_rpm))
+            
+            # When trajectory ends, dump the integral
+            if name == 'part5' and not self._jtc_active and len(self._velocity_log) > 10:
+                dt = self.dt  # 0.01s
+                total_rad_float = sum(v * dt for v, _, _ in self._velocity_log)
+                total_rad_int = sum(i * 2.0 * math.pi / 60.0 * dt for _, _, i in self._velocity_log)
+                total_time = len(self._velocity_log) * dt
+                self.get_logger().info(
+                    '=== VELOCITY INTEGRAL (part5) ===')
+                self.get_logger().info(
+                    '  Ticks logged: {}, Duration: {:.2f}s'.format(
+                        len(self._velocity_log), total_time))
+                self.get_logger().info(
+                    '  Float vel integral: {:.4f} rad ({:.1f} deg)'.format(
+                        total_rad_float, total_rad_float * 180.0 / math.pi))
+                self.get_logger().info(
+                    '  Int RPM integral:   {:.4f} rad ({:.1f} deg)'.format(
+                        total_rad_int, total_rad_int * 180.0 / math.pi))
+                self.get_logger().info(
+                    '  Expected: 3.14 rad (180 deg)')
+                self._velocity_log = []
+
+    # -- CAN primitives --
+
+    def _can_msg(self, motor_id, data):
+        """Build CAN message with MKS CRC."""
+        crc = (motor_id + sum(data)) & 0xFF
+        return can.Message(
+            arbitration_id=motor_id,
+            data=bytearray(data) + bytes([crc]),
+            is_extended_id=False)
+
+    def _can_send_speed(self, motor_id, rpm, accel=0):
+        """
+        0xF6 Speed Mode - 5-byte frame.
+        [0xF6] [DIR|SPD_H] [SPD_L] [ACC] [CRC]
+        """
+        speed = min(round(abs(rpm)), 3000)
+        dir_bit = 0x80 if rpm < 0 else 0x00
+
+        data = [
+            MksCommands.RUN_MOTOR_SPEED_MODE_COMMAND.value,  # 0xF6
+            dir_bit | ((speed >> 8) & 0x0F),
+            speed & 0xFF,
+            accel & 0xFF,
+        ]
+        msg = self._can_msg(motor_id, data)
+
+        try:
+            self.bus.send(msg)
+        except can.CanError as e:
+            self.get_logger().error(
+                'CAN TX fail motor {}: {}'.format(motor_id, e))
+
+    def _can_read_encoder(self, motor_id):
+        """
+        0x31 Read Encoder Value Addition.
+        TX: [0x31] [CRC] = 2 bytes
+        RX: [0x31] [6 bytes signed pos big-endian] [CRC] = 8 bytes
+        """
+        data = [MksCommands.READ_ENCODED_VALUE_ADDITION.value]  # 0x31
+        msg = self._can_msg(motor_id, data)
+
+        try:
+            self.bus.send(msg)
+            resp = self.bus.recv(timeout=0.002)
+
+            if resp and resp.arbitration_id == motor_id:
+                if len(resp.data) >= 7 and resp.data[0] == 0x31:
+                    return int.from_bytes(
+                        resp.data[1:7], 'big', signed=True)
+            return None
+        except can.CanError as e:
+            self.get_logger().warn(
+                'Encoder read fail motor {}: {}'.format(motor_id, e))
+            return None
+
+    # -- Publish --
+
+    def _publish_joint_states(self):
+        msg = JointState()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.name = list(JOINT_NAMES)
+        msg.position = [self.joint_positions[n] for n in JOINT_NAMES]
+        msg.velocity = [self.joint_velocities[n] for n in JOINT_NAMES]
+        msg.effort = []
+        self.joint_state_pub.publish(msg)
+
+    # -- Shutdown --
+
+    def destroy_node(self):
+        if not self.use_sim and self.bus:
+            self.get_logger().info('Stopping connected motors...')
+            for name, motor in self.motors.items():
+                if name in self._connected:
+                    self._can_send_speed(motor.can_id, 0.0)
+            self.bus.shutdown()
+        super().destroy_node()
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    try:
+        node = DexterHardwareBridge()
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        print('Fatal: {}'.format(e))
+        import traceback
+        traceback.print_exc()
+    finally:
+        try:
+            rclpy.shutdown()
+        except Exception:
+            pass
+
+
+if __name__ == '__main__':
+    main()

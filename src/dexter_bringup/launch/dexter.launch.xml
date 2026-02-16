@@ -44,10 +44,10 @@
         args="-d $(var rviz_config_path)" />
 
   <!-- ════════════════════════════════════════════════════════════════════
-       Hardware Bridge (Servo42D CAN)
+       Hardware Bridge v3 — Plan C (0xFE position streaming at 30 Hz)
        Launched only when use_hardware:=true
        Subscribes to /arm_controller/controller_state from JTC
-       Publishes  /joint_states from real encoders
+       Publishes  /encoder_joint_states from real encoders
        ════════════════════════════════════════════════════════════════════ -->
   <group if="$(var use_hardware)">
     <node pkg="dexter_hardware" exec="dexter_hardware_bridge.py"
@@ -55,6 +55,7 @@
       <param name="can_interface" value="$(var can_interface)" />
       <param name="can_bitrate"   value="$(var can_bitrate)" />
       <param name="control_rate"  value="100.0" />
+      <param name="bus_rate"      value="30.0" />
       <param name="use_sim"       value="$(var use_sim)" />
     </node>
   </group>
