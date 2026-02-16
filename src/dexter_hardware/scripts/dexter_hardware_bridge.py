@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Dexter Hardware Bridge v3.1 — Plan C + Velocity Look-Ahead.
+Dexter Hardware Bridge v3.1.
 
 Architecture
 ────────────
@@ -13,24 +13,6 @@ MoveIt → Commander → JTC (arm_controller, mock hardware)
    ├─ READ  : 0x31 encoder (always, even during motion)
    ├─ UPDATE: publish /encoder_joint_states
    └─ WRITE : 0xF5 absolute-position by axis (encoder ticks)
-              with velocity-feedforward look-ahead
-
-Velocity Look-Ahead
-────────────────────
-At 30 Hz the motor reaches each position target in ~5 ms
-and then idles for the remaining ~28 ms → "Sprint-Stop" stutter.
-
-Fix: two-mode "Cruise vs Stop" strategy per joint per tick.
-
-  CRUISING  (|vel| > 0.01 rad/s):
-    target = jtc_pos + jtc_vel × 0.10             (100ms look-ahead, lazy donkey)
-    speed  = 400 RPM                              (calm ceiling)
-    accel  = 40                                   (soft ramp, no jerk)
-
-  STOPPING  (|vel| ≤ 0.01 rad/s):
-    target = jtc_pos                              (land precisely)
-    speed  = 100 RPM
-    accel  = 255                                  (hard lock, max torque)
 
 Control mode: 0xF5 — Absolute Motion by Axis (encoder ticks)
 Encoder read:  0x31  (addition mode, signed 48-bit ticks)
@@ -66,27 +48,6 @@ MAX_AXIS = 8388607      # 0x7FFFFF  (24-bit signed max)
 
 # ── Velocity look-ahead parameters ────────────────────────────
 #
-# Cruising (|vel| > threshold):
-#   target     = jtc_pos + jtc_vel × LOOKAHEAD_TIME
-#   speed      = |jtc_vel| (rad/s→RPM) × CRUISE_SPEED_GAIN, capped at CRUISE_SPEED_MAX
-#   accel      = CRUISE_ACCEL
-#
-# Stopping (|vel| ≤ threshold):
-#   target     = jtc_pos
-#   speed      = STOP_SPEED
-#   accel      = STOP_ACCEL
-#
-LOOKAHEAD_TIME      = 0.1   # s   — how far ahead to place the carrot
-STOP_VEL_THRESHOLD  = 0.01   # rad/s — below this, joint is "stopping"
-
-CRUISE_SPEED_GAIN   = 1.5    # multiplier on |jtc_vel| (in RPM) for cruise speed
-CRUISE_SPEED_MAX    = 3000   # RPM — hard cap on cruise speed
-CRUISE_ACCEL        = 30   # soft ramp — prevents start-jerk & catch-up braking
-
-STOP_SPEED          = 100    # RPM — non-zero so motor can still correct
-STOP_ACCEL          = 255    # max — hard lock for precise hold
-
-
 @dataclass
 class MotorConfig:
     joint_name: str
@@ -201,13 +162,11 @@ class DexterHardwareBridge(Node):
         bus_hz = self.get_parameter('bus_rate').value
         js_topic = '/joint_states' if self.use_sim else '/encoder_joint_states'
         self.get_logger().info('=' * 56)
-        self.get_logger().info('  Dexter Hardware Bridge v3.1 — Plan C + Look-Ahead')
+        self.get_logger().info('  Dexter Hardware Bridge v3.1')
         self.get_logger().info('  Mode     : {}'.format(mode_str))
         self.get_logger().info('  Timer    : {} Hz'.format(rate))
         self.get_logger().info('  Bus rate : {} Hz (CAN I/O)'.format(bus_hz))
-        self.get_logger().info('  Cmd mode : 0xF5 + velocity look-ahead')
-        self.get_logger().info('  Lookahead: {:.0f} ms, threshold: {} rad/s'.format(
-            LOOKAHEAD_TIME * 1000, STOP_VEL_THRESHOLD))
+        self.get_logger().info('  Cmd mode : 0xF5 absolute position')
         self.get_logger().info('  Joints   : {}'.format(JOINT_NAMES))
         self.get_logger().info('  Connected: {}'.format(
             sorted(self._connected)))
@@ -348,42 +307,16 @@ class DexterHardwareBridge(Node):
     # ═══════════════════════════════════════════════════════════════
 
     def _hw_write_positions(self, pos_cmds, vel_cmds):
-        """Send 0xF5 absolute-position-by-axis with velocity look-ahead.
-
-        Two-mode "Cruise vs Stop" strategy per joint:
-
-          CRUISING (|vel| > threshold):
-            target = pos + vel × LOOKAHEAD_TIME   (push carrot forward)
-            speed  = max(|vel| × 2, 150 RPM)      (headroom to chase)
-            accel  = 80                            (smooth)
-
-          STOPPING (|vel| ≤ threshold):
-            target = pos                          (land precisely)
-            speed  = 100 RPM
-            accel  = 255                           (hard lock)
-        """
+        """Send 0xF5 absolute-position-by-axis commands."""
         for name, motor in self.motors.items():
             if name not in self._connected:
                 continue
 
-            jtc_pos = pos_cmds[name]
-            jtc_vel = vel_cmds.get(name, 0.0)
-
-            # ── Cruise vs Stop ─────────────────────────────────────
-            if abs(jtc_vel) > STOP_VEL_THRESHOLD:
-                # CRUISING — push target ahead so motor never stops
-                target_rad = jtc_pos + jtc_vel * LOOKAHEAD_TIME
-
-                # Speed proportional to JTC velocity (rad/s → RPM)
-                vel_rpm = abs(jtc_vel) * 60.0 / (2.0 * math.pi)
-                speed = max(round(vel_rpm * CRUISE_SPEED_GAIN), 1)
-                speed = min(speed, CRUISE_SPEED_MAX)
-                accel = CRUISE_ACCEL
-            else:
-                # STOPPING — land exactly on JTC position
-                target_rad = jtc_pos
-                speed = STOP_SPEED
-                accel = STOP_ACCEL
+            target_rad = pos_cmds[name]
+            
+            # Default speed and acceleration
+            speed = 100  # RPM
+            accel = 100  # max
 
             # ── Convert radians → encoder ticks ────────────────────
             target_ticks = round(
@@ -401,9 +334,9 @@ class DexterHardwareBridge(Node):
                     motor.can_id, speed, accel, target_ticks)
                 self.get_logger().info(
                     '  CAN TX M{}: {:.4f} rad -> {} ticks '
-                    '(spd={} acc={} vel={:.3f})'.format(
+                    '(spd={} acc={})'.format(
                         motor.can_id, target_rad, target_ticks,
-                        speed, accel, jtc_vel))
+                        speed, accel))
                 self._last_sent_pulses[name] = target_ticks
 
     def _hw_write_manual_velocities(self):
