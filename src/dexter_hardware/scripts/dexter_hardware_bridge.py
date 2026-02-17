@@ -1,20 +1,30 @@
 #!/usr/bin/env python3
 """
-Dexter Hardware Bridge v3.1.
+Dexter Hardware Bridge v4.0 — Single-rate 30 Hz pipeline.
 
 Architecture
 ────────────
-MoveIt → Commander → JTC (arm_controller, mock hardware)
+MoveIt → Commander → JTC (arm_controller, mock hardware @ 30 Hz)
                         │
-   /arm_controller/controller_state (100 Hz, reference.positions + velocities)
+   /arm_controller/controller_state (30 Hz, reference.positions)
                         │
-             Hardware Bridge (this node)
-   ├─ Down-samples to 30 Hz synchronous loop
-   ├─ READ  : 0x31 encoder (always, even during motion)
-   ├─ UPDATE: publish /encoder_joint_states
+             Hardware Bridge (this node, 30 Hz timer)
+   ├─ READ  : 0x31 encoder (round-robin across connected motors)
+   ├─ PUBLISH: /encoder_joint_states
    └─ WRITE : 0xF5 absolute-position by axis (encoder ticks)
 
-Control mode: 0xF5 — Absolute Motion by Axis (encoder ticks)
+Everything runs at 30 Hz: JTC update_rate, state_publish_rate, and
+this node's timer.  No down-sampling or rate mismatch.
+
+Conversions applied to JTC reference → motor command:
+  1. 30:1 gear ratio  (radians ↔ encoder ticks)
+  2. Per-motor direction sign  (cmd_direction / enc_direction)
+No additional smoothing, scaling, or velocity processing.
+
+0xF5 speed & accel parameters:
+  speed = 3000 RPM  (max ceiling — never limits the trajectory)
+  accel = 0         (max acceleration — motor follows JTC instantly)
+
 Encoder read:  0x31  (addition mode, signed 48-bit ticks)
 """
 
@@ -24,8 +34,6 @@ import can
 import sys
 import os
 import math
-import time
-from typing import Dict, Optional
 from dataclasses import dataclass
 
 from sensor_msgs.msg import JointState
@@ -46,8 +54,13 @@ JOINT_NAMES = ['base', 'part1', 'part2', 'part3', 'part4', 'part5']
 TICKS_PER_REV = 16384   # 14-bit encoder
 MAX_AXIS = 8388607      # 0x7FFFFF  (24-bit signed max)
 
-# ── Velocity look-ahead parameters ────────────────────────────
-#
+# Fixed 0xF5 parameters — let JTC control the motion profile entirely.
+# speed  = 3000 RPM ceiling so motor is never speed-limited.
+# accel  = 0     → max acceleration (motor follows target instantly).
+F5_SPEED = 3000
+F5_ACCEL = 0
+
+
 @dataclass
 class MotorConfig:
     joint_name: str
@@ -64,52 +77,59 @@ class MotorConfig:
 
 class DexterHardwareBridge(Node):
 
+    LOOP_RATE = 30.0  # Hz — matches JTC update_rate exactly
+
     def __init__(self):
         super().__init__('dexter_hardware_bridge')
 
         # ── Parameters ──────────────────────────────────────────────
         self.declare_parameter('can_interface', 'can0')
         self.declare_parameter('can_bitrate', 500000)
-        self.declare_parameter('control_rate', 100.0)   # ROS timer Hz
-        self.declare_parameter('bus_rate', 30.0)         # CAN I/O Hz
         self.declare_parameter('use_sim', False)
         self.declare_parameter('connected_joints', ['part3', 'part5'])
 
         self.use_sim = self.get_parameter('use_sim').value
-        self.dt = 1.0 / self.get_parameter('control_rate').value
-        self._bus_period = 1.0 / self.get_parameter('bus_rate').value
+        self.dt = 1.0 / self.LOOP_RATE
         self._connected = set(
             self.get_parameter('connected_joints').value)
 
         # ── Motor map ───────────────────────────────────────────────
-        # For 0xF5 (absolute motion by axis), the target is in the
-        # SAME coordinate system as encoder ticks (0x31 reads).
-        # So cmd_direction should match enc_direction — the target
-        # tick value must equal what the encoder will read at that angle.
+        # All motors have 30:1 gear reducer with output direction opposite to motor.
         #
-        # Motor 6 (part5): CW→positive encoder ticks, CCW→negative
-        #   enc_direction=1 → positive ticks = positive rad
-        #   cmd_direction=1 → positive rad → positive axis ticks  (match encoder)
+        # cmd_direction: -1 → reducer output direction opposite to motor rotation
+        # enc_direction: -1 for motors 2 & 6 (encoder feedback opposite to command)
+        #                 1 for motors 1, 3, 4, 5 (normal behavior)
         self.motors = {
-            'base':  MotorConfig(joint_name='base',  can_id=1),
-            'part1': MotorConfig(joint_name='part1', can_id=2),
-            'part2': MotorConfig(joint_name='part2', can_id=3),
-            'part3': MotorConfig(joint_name='part3', can_id=4),
-            'part4': MotorConfig(joint_name='part4', can_id=5),
+            'base':  MotorConfig(joint_name='base',  can_id=1,
+                                 gear_ratio=30.0, cmd_direction=-1, enc_direction=1),
+            'part1': MotorConfig(joint_name='part1', can_id=2,
+                                 gear_ratio=30.0, cmd_direction=-1, enc_direction=-1),
+            'part2': MotorConfig(joint_name='part2', can_id=3,
+                                 gear_ratio=30.0, cmd_direction=-1, enc_direction=1),
+            'part3': MotorConfig(joint_name='part3', can_id=4,
+                                 gear_ratio=30.0, cmd_direction=-1, enc_direction=1),
+            'part4': MotorConfig(joint_name='part4', can_id=5,
+                                 gear_ratio=30.0, cmd_direction=-1, enc_direction=1),
             'part5': MotorConfig(joint_name='part5', can_id=6,
-                                 cmd_direction=1, enc_direction=1),
+                                 gear_ratio=30.0, cmd_direction=-1, enc_direction=-1),
         }
 
         # ── State ──────────────────────────────────────────────────
         self.joint_positions = {n: 0.0 for n in JOINT_NAMES}
         self.joint_velocities = {n: 0.0 for n in JOINT_NAMES}
         self._ref_positions = {n: 0.0 for n in JOINT_NAMES}
-        self._ref_velocities = {n: 0.0 for n in JOINT_NAMES}
         self._last_ref_positions = {n: 0.0 for n in JOINT_NAMES}
         self._jtc_active = False
         self._encoder_read_index = 0
-        self._last_bus_time = 0.0   # for 30 Hz down-sampling
-        self._last_sent_pulses = {n: 0 for n in JOINT_NAMES}
+        self._last_sent_ticks = {n: 0 for n in JOINT_NAMES}
+
+        # Startup safety: don't send motor commands until we have read
+        # every connected motor's encoder at least once.  This prevents
+        # the bridge from forwarding a bogus JTC reference (e.g. from
+        # mock-hardware initial_positions) that differs from the real
+        # motor position, which would cause a violent snap on boot.
+        self._encoders_initialized = set()  # names we've read at least once
+        self._write_enabled = False         # flips True once all connected are read
 
         # Manual mode (direct velocity override for testing)
         self._manual_mode = False
@@ -139,7 +159,7 @@ class DexterHardwareBridge(Node):
             self.joint_state_pub = self.create_publisher(
                 JointState, '/encoder_joint_states', 10)
 
-        # JTC controller state (reference positions at 100 Hz)
+        # JTC controller state (reference positions at 30 Hz)
         self.state_sub = self.create_subscription(
             JointTrajectoryControllerState,
             '/arm_controller/controller_state',
@@ -153,20 +173,21 @@ class DexterHardwareBridge(Node):
             self._on_velocity_cmd,
             10)
 
-        # ── Control timer ──────────────────────────────────────────
+        # ── Control timer (30 Hz — single rate) ───────────────────
         self.timer = self.create_timer(self.dt, self._control_loop)
         self.loop_count = 0
 
         mode_str = 'SIM' if self.use_sim else 'HARDWARE'
-        rate = self.get_parameter('control_rate').value
-        bus_hz = self.get_parameter('bus_rate').value
         js_topic = '/joint_states' if self.use_sim else '/encoder_joint_states'
         self.get_logger().info('=' * 56)
-        self.get_logger().info('  Dexter Hardware Bridge v3.1')
+        self.get_logger().info('  Dexter Hardware Bridge v4.0')
         self.get_logger().info('  Mode     : {}'.format(mode_str))
-        self.get_logger().info('  Timer    : {} Hz'.format(rate))
-        self.get_logger().info('  Bus rate : {} Hz (CAN I/O)'.format(bus_hz))
+        self.get_logger().info('  Rate     : {} Hz (single-rate)'.format(
+            self.LOOP_RATE))
         self.get_logger().info('  Cmd mode : 0xF5 absolute position')
+        self.get_logger().info('  F5 speed : {} RPM (ceiling)'.format(
+            F5_SPEED))
+        self.get_logger().info('  F5 accel : {} (max)'.format(F5_ACCEL))
         self.get_logger().info('  Joints   : {}'.format(JOINT_NAMES))
         self.get_logger().info('  Connected: {}'.format(
             sorted(self._connected)))
@@ -178,10 +199,9 @@ class DexterHardwareBridge(Node):
     # ═══════════════════════════════════════════════════════════════
 
     def _on_jtc_state(self, msg):
-        """Extract reference positions and velocities from JTC state."""
+        """Extract reference positions from JTC state."""
         names = list(msg.joint_names)
         ref_pos = msg.reference.positions
-        ref_vel = msg.reference.velocities
 
         if len(ref_pos) == 0:
             return
@@ -190,13 +210,10 @@ class DexterHardwareBridge(Node):
         for i, name in enumerate(names):
             if name in self._ref_positions and i < len(ref_pos):
                 self._ref_positions[name] = ref_pos[i]
-                # Extract velocity if available
-                if i < len(ref_vel):
-                    self._ref_velocities[name] = ref_vel[i]
-                else:
-                    self._ref_velocities[name] = 0.0
-                # Detect trajectory activity: reference differs from last
-                if abs(ref_pos[i] - self._last_ref_positions.get(name, 0.0)) > 1e-6:
+                # Detect trajectory activity: reference changed significantly.
+                # Threshold of 0.001 rad (~0.06°) filters out floating-point
+                # jitter from the JTC while still catching real motion.
+                if abs(ref_pos[i] - self._last_ref_positions.get(name, 0.0)) > 0.001:
                     any_moving = True
 
         if any_moving and not self._jtc_active:
@@ -227,44 +244,38 @@ class DexterHardwareBridge(Node):
             self._manual_vels[name] = msg.data[i]
 
     # ═══════════════════════════════════════════════════════════════
-    #  Control Loop  (runs at control_rate, e.g. 100 Hz)
+    #  Control Loop  (30 Hz — single rate)
     # ═══════════════════════════════════════════════════════════════
 
     def _control_loop(self):
+        """Single-rate 30 Hz loop: read → publish → write."""
         self.loop_count += 1
 
-        now = time.monotonic()
-        do_bus_io = (now - self._last_bus_time) >= self._bus_period
-
         if self.use_sim:
-            # Sim mode: integrate manual velocities into positions
+            # Sim mode: integrate manual velocities or track reference
             if self._manual_mode:
                 for name in JOINT_NAMES:
                     self.joint_positions[name] += (
                         self._manual_vels[name] * self.dt)
             else:
-                # In sim, track the reference positions directly
                 for name in JOINT_NAMES:
                     self.joint_positions[name] = self._ref_positions[name]
-        elif do_bus_io:
-            # ── 30 Hz synchronous CAN cycle ────────────────────────
-            self._last_bus_time = now
-
-            # 1. READ encoder(s) — always active, even during motion
+        else:
+            # ── READ encoder(s) ────────────────────────────────────
             self._hw_read_encoders()
 
-            # 2. WRITE position command
-            if self._manual_mode:
-                self._hw_write_manual_velocities()
-            else:
-                self._hw_write_positions(
-                    self._ref_positions, self._ref_velocities)
+            # ── WRITE position command (only after encoders init) ──
+            if self._write_enabled:
+                if self._manual_mode:
+                    self._hw_write_manual_velocities()
+                else:
+                    self._hw_write_positions(self._ref_positions)
 
-        # PUBLISH joint states on every tick (100 Hz) for smooth RViz
+        # ── PUBLISH joint states ───────────────────────────────────
         self._publish_joint_states()
 
         # Periodic log
-        if self.loop_count % 500 == 0:
+        if self.loop_count % 150 == 0:  # every 5 sec at 30 Hz
             mode = 'SIM' if self.use_sim else 'HW'
             state = ('MANUAL' if self._manual_mode
                      else ('ACTIVE' if self._jtc_active else 'IDLE'))
@@ -286,11 +297,38 @@ class DexterHardwareBridge(Node):
 
         With 2 connected motors at 30 Hz, each motor is read at 15 Hz.
         This keeps the bus quiet enough to avoid collisions with writes.
+
+        On startup, reads ALL connected motors sequentially (once each)
+        before enabling writes, so we never command a position we haven't
+        verified the motor is actually near.
         """
         connected = [n for n in JOINT_NAMES if n in self._connected]
         if not connected:
             return
 
+        if not self._write_enabled:
+            # Startup phase: read every connected motor once
+            for name in connected:
+                if name in self._encoders_initialized:
+                    continue
+                motor = self.motors[name]
+                ticks = self._can_read_encoder(motor.can_id)
+                if ticks is not None:
+                    revs = ticks / motor.encoder_ticks_per_rev / motor.gear_ratio
+                    self.joint_positions[name] = (
+                        revs * 2.0 * math.pi * motor.enc_direction)
+                    self._encoders_initialized.add(name)
+                    self.get_logger().info(
+                        'Encoder init {}: {} ticks = {:.4f} rad'.format(
+                            name, ticks, self.joint_positions[name]))
+            # Check if all connected motors have been read
+            if self._encoders_initialized >= self._connected:
+                self._write_enabled = True
+                self.get_logger().info(
+                    'All encoders initialized — motor writes ENABLED')
+            return
+
+        # Normal operation: round-robin one motor per tick
         idx = self._encoder_read_index % len(connected)
         name = connected[idx]
         motor = self.motors[name]
@@ -303,20 +341,21 @@ class DexterHardwareBridge(Node):
                 revs * 2.0 * math.pi * motor.enc_direction)
 
     # ═══════════════════════════════════════════════════════════════
-    #  Hardware CAN — Position Write  (0xF5 + Look-Ahead)
+    #  Hardware CAN — Position Write  (0xF5)
     # ═══════════════════════════════════════════════════════════════
 
-    def _hw_write_positions(self, pos_cmds, vel_cmds):
-        """Send 0xF5 absolute-position-by-axis commands."""
+    def _hw_write_positions(self, pos_cmds):
+        """Send 0xF5 absolute-position-by-axis commands.
+
+        Only two conversions:
+          1. 30:1 gear ratio  (radians → encoder ticks)
+          2. Per-motor cmd_direction sign
+        """
         for name, motor in self.motors.items():
             if name not in self._connected:
                 continue
 
             target_rad = pos_cmds[name]
-            
-            # Default speed and acceleration
-            speed = 100  # RPM
-            accel = 100  # max
 
             # ── Convert radians → encoder ticks ────────────────────
             target_ticks = round(
@@ -329,15 +368,13 @@ class DexterHardwareBridge(Node):
             target_ticks = max(-MAX_AXIS, min(MAX_AXIS, target_ticks))
 
             # Only send when tick target changes
-            if target_ticks != self._last_sent_pulses[name]:
+            if target_ticks != self._last_sent_ticks[name]:
                 self._can_send_absolute_axis(
-                    motor.can_id, speed, accel, target_ticks)
-                self.get_logger().info(
-                    '  CAN TX M{}: {:.4f} rad -> {} ticks '
-                    '(spd={} acc={})'.format(
-                        motor.can_id, target_rad, target_ticks,
-                        speed, accel))
-                self._last_sent_pulses[name] = target_ticks
+                    motor.can_id, F5_SPEED, F5_ACCEL, target_ticks)
+                self.get_logger().debug(
+                    '  CAN TX M{}: {:.4f} rad -> {} ticks'.format(
+                        motor.can_id, target_rad, target_ticks))
+                self._last_sent_ticks[name] = target_ticks
 
     def _hw_write_manual_velocities(self):
         """Fallback: send 0xF6 speed-mode commands for manual override."""

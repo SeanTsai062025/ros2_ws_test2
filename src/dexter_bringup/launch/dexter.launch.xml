@@ -29,8 +29,10 @@
     <param from="$(find-pkg-share dexter_bringup)/config/ros2_controllers.yaml" />
   </node>
 
-  <node pkg="controller_manager" exec="spawner" args="joint_state_broadcaster" />
-  <node pkg="controller_manager" exec="spawner" args="arm_controller" />
+  <node pkg="controller_manager" exec="spawner"
+        args="joint_state_broadcaster --controller-manager-timeout 30" />
+  <node pkg="controller_manager" exec="spawner"
+        args="arm_controller --controller-manager-timeout 30" />
 
   <!-- ════════════════════════════════════════════════════════════════════
        MoveIt move_group
@@ -38,13 +40,16 @@
   <include file="$(find-pkg-share dexter_moveit_config)/launch/move_group.launch.py" />
 
   <!-- ════════════════════════════════════════════════════════════════════
-       RViz
+       RViz — use the MoveIt RViz launcher so that robot_description_semantic
+       (SRDF) and kinematics params are passed to the RViz node.
        ════════════════════════════════════════════════════════════════════ -->
-  <node pkg="rviz2" exec="rviz2" output="screen"
-        args="-d $(var rviz_config_path)" />
+  <include file="$(find-pkg-share dexter_moveit_config)/launch/moveit_rviz.launch.py">
+    <arg name="rviz_config"
+         value="$(var rviz_config_path)" />
+  </include>
 
   <!-- ════════════════════════════════════════════════════════════════════
-       Hardware Bridge v3 — Plan C (0xFE position streaming at 30 Hz)
+       Hardware Bridge v4.0 — 0xF5 position streaming at 30 Hz
        Launched only when use_hardware:=true
        Subscribes to /arm_controller/controller_state from JTC
        Publishes  /encoder_joint_states from real encoders
@@ -54,8 +59,6 @@
           name="dexter_hardware_bridge" output="screen">
       <param name="can_interface" value="$(var can_interface)" />
       <param name="can_bitrate"   value="$(var can_bitrate)" />
-      <param name="control_rate"  value="100.0" />
-      <param name="bus_rate"      value="30.0" />
       <param name="use_sim"       value="$(var use_sim)" />
     </node>
   </group>

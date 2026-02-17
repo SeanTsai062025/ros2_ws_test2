@@ -1,13 +1,13 @@
 # This config file is used by ros2_control
+# NOTE: The authoritative controller config is in dexter_bringup.
+#       This file must stay in sync with it so move_group doesn't
+#       load a conflicting controller definition.
 controller_manager:
   ros__parameters:
-    update_rate: 100  # Hz
+    update_rate: 30  # Hz — single rate, matches hardware bridge exactly
 
     arm_controller:
       type: joint_trajectory_controller/JointTrajectoryController
-
-    velocity_controller:
-      type: forward_command_controller/ForwardCommandController
 
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
@@ -22,46 +22,18 @@ arm_controller:
       - part4
       - part5
     command_interfaces:
-      - velocity
+      - position
     state_interfaces:
       - position
       - velocity
     allow_nonzero_velocity_at_trajectory_end: true
-    
-    # PID gains for position tracking (JTC computes velocity from position error)
-    gains:
-      base:
-        p: 10.0
-        i: 0.0
-        d: 0.5
-      part1:
-        p: 10.0
-        i: 0.0
-        d: 0.5
-      part2:
-        p: 10.0
-        i: 0.0
-        d: 0.5
-      part3:
-        p: 10.0
-        i: 0.0
-        d: 0.5
-      part4:
-        p: 10.0
-        i: 0.0
-        d: 0.5
-      part5:
-        p: 10.0
-        i: 0.0
-        d: 0.5
 
-velocity_controller:
-  ros__parameters:
-    joints:
-      - base
-      - part1
-      - part2
-      - part3
-      - part4
-      - part5
-    interface_name: velocity
+    # Publish controller state at 30 Hz — matches bridge loop exactly
+    state_publish_rate: 30.0
+
+    # Action monitor rate — how often the JTC checks if the goal is reached
+    action_monitor_rate: 30.0
+
+    # Don't abort on goal_time — let trajectory finish naturally
+    constraints:
+      goal_time: 0.0
