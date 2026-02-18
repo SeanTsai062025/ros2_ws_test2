@@ -35,7 +35,7 @@ class MotorControllerNode(Node):
         
         # Get parameters
         self.declare_parameter('can_interface', 'can0')
-        self.declare_parameter('bitrate', 500000)
+        self.declare_parameter('bitrate', 1000000)
         
         can_interface = self.get_parameter('can_interface').value
         bitrate = self.get_parameter('bitrate').value

@@ -5,7 +5,7 @@ dexter_hardware_bridge:
   ros__parameters:
     # CAN bus settings
     can_interface: "can0"
-    can_bitrate: 500000
+    can_bitrate: 1000000
     
     # Control loop rate (should match ros2_control update_rate)
     control_rate: 100.0

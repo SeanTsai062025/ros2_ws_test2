@@ -1,33 +1,44 @@
 #!/usr/bin/env python3
 """
-Dexter Hardware Bridge v4.1 — Single-rate 30 Hz pipeline
+Dexter Hardware Bridge v5.0 — Single-rate 100 Hz pipeline
                                + Unified Linear Blending.
 
 Architecture
 ────────────
-MoveIt → Commander → JTC (arm_controller, mock hardware @ 30 Hz)
+MoveIt → Commander → JTC (arm_controller, mock hardware @ 100 Hz)
                         │
-   /arm_controller/controller_state (30 Hz, reference.positions)
+   /arm_controller/controller_state (100 Hz, reference.positions)
                         │
-             Hardware Bridge (this node, 30 Hz timer)
-   ├─ READ  : 0x31 encoder (round-robin across connected motors)
+             Hardware Bridge (this node, 100 Hz timer)
+   ├─ READ  : 0x31 encoder — ALL connected motors every cycle
    ├─ PUBLISH: /encoder_joint_states
    └─ WRITE : 0xF5 absolute-position by axis (encoder ticks)
+              — ALL connected motors every cycle
 
-Everything runs at 30 Hz: JTC update_rate, state_publish_rate, and
+Everything runs at 100 Hz: JTC update_rate, state_publish_rate, and
 this node's timer.  No down-sampling or rate mismatch.
+Every cycle reads ALL connected encoders and writes ALL connected motors.
+
+CAN bus budget (1 Mbps):
+  Standard CAN frame ≈ 0.13 ms on wire.
+  Per cycle (6 motors): 6 read TX + 6 read RX + 6 write TX = 18 frames
+  ≈ 2.3 ms  ≪  10 ms cycle budget.  Comfortable margin.
 
 Unified Linear Blending Model
 ──────────────────────────────
 A velocity-dependent look-ahead that provides nonlinear damping:
 
   w      = clamp(|V_TJC| / 0.5, 0.0, 1.0)
-  T_eff  = T_max × w                          (T_max = 100 ms)
+  T_eff  = T_max × w                          (T_max = 30 ms)
   Target = D_TJC + V_TJC × T_eff
 
 At rest the weight w → 0, so the target equals the JTC reference
 (stiff hold, no overshoot).  During fast motion w → 1, giving a full
-100 ms look-ahead that smooths tracking and reduces phase lag.
+30 ms look-ahead that smooths tracking and reduces phase lag.
+
+T_max rationale: At 100 Hz the dt is 10 ms. A 30 ms look-ahead (3 cycles)
+is proportionally equivalent to the 100 ms (3 cycles) used at 30 Hz,
+providing the same phase-lag compensation without overshooting.
 
 Conversions applied to blended target → motor command:
   1. 30:1 gear ratio  (radians ↔ encoder ticks)
@@ -87,8 +98,13 @@ F5_FALLBACK_SPEED = 300   # RPM — moderate speed for hold / re-target
 #   w = clamp(|V_TJC| / BLEND_VEL_THRESHOLD, 0.0, 1.0)
 #   T_eff = T_LOOKAHEAD_MAX * w
 #   Target = D_TJC + V_TJC * T_eff
+#
+# At 100 Hz (dt = 10 ms) a 30 ms look-ahead spans 3 control cycles,
+# which is proportionally equivalent to 100 ms at 30 Hz (also 3 cycles).
+# This preserves the same phase-lag compensation ratio while the higher
+# update rate inherently provides smoother tracking.
 BLEND_VEL_THRESHOLD = 0.5   # rad/s — velocity at which blending is fully active
-T_LOOKAHEAD_MAX = 0.100      # seconds (100 ms) — maximum look-ahead time
+T_LOOKAHEAD_MAX = 0.030      # seconds (30 ms) — maximum look-ahead time
 
 
 @dataclass
@@ -107,14 +123,14 @@ class MotorConfig:
 
 class DexterHardwareBridge(Node):
 
-    LOOP_RATE = 30.0  # Hz — matches JTC update_rate exactly
+    LOOP_RATE = 100.0  # Hz — matches JTC update_rate exactly
 
     def __init__(self):
         super().__init__('dexter_hardware_bridge')
 
         # ── Parameters ──────────────────────────────────────────────
         self.declare_parameter('can_interface', 'can0')
-        self.declare_parameter('can_bitrate', 500000)
+        self.declare_parameter('can_bitrate', 1000000)
         self.declare_parameter('use_sim', False)
         self.declare_parameter('connected_joints', ['part3', 'part5'])
 
@@ -151,7 +167,6 @@ class DexterHardwareBridge(Node):
         self._ref_velocities = {n: 0.0 for n in JOINT_NAMES}
         self._last_ref_positions = {n: 0.0 for n in JOINT_NAMES}
         self._jtc_active = False
-        self._encoder_read_index = 0
         self._last_sent_ticks = {n: 0 for n in JOINT_NAMES}
 
         # Startup safety: don't send motor commands until we have read
@@ -190,7 +205,7 @@ class DexterHardwareBridge(Node):
             self.joint_state_pub = self.create_publisher(
                 JointState, '/encoder_joint_states', 10)
 
-        # JTC controller state (reference positions at 30 Hz)
+        # JTC controller state (reference positions at 100 Hz)
         self.state_sub = self.create_subscription(
             JointTrajectoryControllerState,
             '/arm_controller/controller_state',
@@ -204,14 +219,14 @@ class DexterHardwareBridge(Node):
             self._on_velocity_cmd,
             10)
 
-        # ── Control timer (30 Hz — single rate) ───────────────────
+        # ── Control timer (100 Hz — single rate) ──────────────────
         self.timer = self.create_timer(self.dt, self._control_loop)
         self.loop_count = 0
 
         mode_str = 'SIM' if self.use_sim else 'HARDWARE'
         js_topic = '/joint_states' if self.use_sim else '/encoder_joint_states'
         self.get_logger().info('=' * 56)
-        self.get_logger().info('  Dexter Hardware Bridge v4.1')
+        self.get_logger().info('  Dexter Hardware Bridge v5.0')
         self.get_logger().info('  Mode     : {}'.format(mode_str))
         self.get_logger().info('  Rate     : {} Hz (single-rate)'.format(
             self.LOOP_RATE))
@@ -222,6 +237,7 @@ class DexterHardwareBridge(Node):
         self.get_logger().info('  Blending : vel_thresh={} rad/s, '
                                'T_max={} ms'.format(
             BLEND_VEL_THRESHOLD, T_LOOKAHEAD_MAX * 1000.0))
+        self.get_logger().info('  Enc read : ALL connected motors every cycle')
         self.get_logger().info('  Joints   : {}'.format(JOINT_NAMES))
         self.get_logger().info('  Connected: {}'.format(
             sorted(self._connected)))
@@ -284,11 +300,11 @@ class DexterHardwareBridge(Node):
             self._manual_vels[name] = msg.data[i]
 
     # ═══════════════════════════════════════════════════════════════
-    #  Control Loop  (30 Hz — single rate)
+    #  Control Loop  (100 Hz — single rate)
     # ═══════════════════════════════════════════════════════════════
 
     def _control_loop(self):
-        """Single-rate 30 Hz loop: read → publish → write."""
+        """Single-rate 100 Hz loop: read ALL → publish → write ALL."""
         self.loop_count += 1
 
         if self.use_sim:
@@ -301,10 +317,10 @@ class DexterHardwareBridge(Node):
                 for name in JOINT_NAMES:
                     self.joint_positions[name] = self._ref_positions[name]
         else:
-            # ── READ encoder(s) ────────────────────────────────────
+            # ── READ ALL encoders ───────────────────────────────────
             self._hw_read_encoders()
 
-            # ── WRITE position command (only after encoders init) ──
+            # ── WRITE ALL position commands (only after encoders init) ──
             if self._write_enabled:
                 if self._manual_mode:
                     self._hw_write_manual_velocities()
@@ -315,7 +331,7 @@ class DexterHardwareBridge(Node):
         self._publish_joint_states()
 
         # Periodic log
-        if self.loop_count % 150 == 0:  # every 5 sec at 30 Hz
+        if self.loop_count % 500 == 0:  # every 5 sec at 100 Hz
             mode = 'SIM' if self.use_sim else 'HW'
             state = ('MANUAL' if self._manual_mode
                      else ('ACTIVE' if self._jtc_active else 'IDLE'))
@@ -333,10 +349,11 @@ class DexterHardwareBridge(Node):
     # ═══════════════════════════════════════════════════════════════
 
     def _hw_read_encoders(self):
-        """Round-robin read of connected motors (one per 30 Hz tick).
+        """Read ALL connected motor encoders every 100 Hz cycle.
 
-        With 2 connected motors at 30 Hz, each motor is read at 15 Hz.
-        This keeps the bus quiet enough to avoid collisions with writes.
+        At 1 Mbps CAN, each read is a 2-byte TX + 8-byte RX pair
+        (~0.26 ms).  With 6 motors that's ~1.6 ms — well within the
+        10 ms cycle budget even including the write phase (~0.8 ms).
 
         On startup, reads ALL connected motors sequentially (once each)
         before enabling writes, so we never command a position we haven't
@@ -368,24 +385,21 @@ class DexterHardwareBridge(Node):
                     'All encoders initialized — motor writes ENABLED')
             return
 
-        # Normal operation: round-robin one motor per tick
-        idx = self._encoder_read_index % len(connected)
-        name = connected[idx]
-        motor = self.motors[name]
-        self._encoder_read_index += 1
-
-        ticks = self._can_read_encoder(motor.can_id)
-        if ticks is not None:
-            revs = ticks / motor.encoder_ticks_per_rev / motor.gear_ratio
-            self.joint_positions[name] = (
-                revs * 2.0 * math.pi * motor.enc_direction)
+        # Normal operation: read ALL connected motors every cycle
+        for name in connected:
+            motor = self.motors[name]
+            ticks = self._can_read_encoder(motor.can_id)
+            if ticks is not None:
+                revs = ticks / motor.encoder_ticks_per_rev / motor.gear_ratio
+                self.joint_positions[name] = (
+                    revs * 2.0 * math.pi * motor.enc_direction)
 
     # ═══════════════════════════════════════════════════════════════
     #  Hardware CAN — Position Write  (0xF5)
     # ═══════════════════════════════════════════════════════════════
 
     def _hw_write_positions(self, pos_cmds):
-        """Send 0xF5 absolute-position-by-axis commands.
+        """Send 0xF5 absolute-position-by-axis commands to ALL connected motors.
 
         Unified Linear Blending Model:
           w      = clamp(|V_TJC| / BLEND_VEL_THRESHOLD, 0, 1)
@@ -394,9 +408,12 @@ class DexterHardwareBridge(Node):
 
         The blending weight *w* rises linearly with velocity so that:
           • At rest (vel ≈ 0) → w ≈ 0 → no look-ahead, target = reference.
-          • At full speed      → w = 1 → full 100 ms look-ahead.
+          • At full speed      → w = 1 → full 30 ms look-ahead.
         This gives nonlinear damping: stiff holding at rest, smooth
         tracking during fast motions.
+
+        At 100 Hz (dt = 10 ms) T_max = 30 ms spans 3 control cycles,
+        matching the 3-cycle ratio from the original 30 Hz / 100 ms design.
 
         Conversions (after blending):
           1. Position: 30:1 gear ratio (radians → encoder ticks) + direction sign

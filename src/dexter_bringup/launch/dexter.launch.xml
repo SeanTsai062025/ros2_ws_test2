@@ -8,7 +8,7 @@
   <arg name="use_sim" default="false"
        description="hardware bridge sim mode (no CAN, fake positions)" />
   <arg name="can_interface" default="can0" />
-  <arg name="can_bitrate" default="500000" />
+  <arg name="can_bitrate" default="1000000" />
 
   <let name="urdf_path"
        value="$(find-pkg-share dexter_moveit_config)/config/dexter_simplify.urdf.xacro"/>
@@ -49,7 +49,7 @@
   </include>
 
   <!-- ════════════════════════════════════════════════════════════════════
-       Hardware Bridge v4.0 — 0xF5 position streaming at 30 Hz
+       Hardware Bridge v5.0 — 0xF5 position streaming at 100 Hz
        Launched only when use_hardware:=true
        Subscribes to /arm_controller/controller_state from JTC
        Publishes  /encoder_joint_states from real encoders

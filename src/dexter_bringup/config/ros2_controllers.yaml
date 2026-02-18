@@ -1,7 +1,7 @@
 # This config file is used by ros2_control
 controller_manager:
   ros__parameters:
-    update_rate: 30  # Hz — single rate, matches hardware bridge exactly
+    update_rate: 100  # Hz — single rate, matches hardware bridge exactly
 
     arm_controller:
       type: joint_trajectory_controller/JointTrajectoryController
@@ -21,7 +21,7 @@ arm_controller:
 
     # The JTC streams position commands to mock hardware.
     # The hardware bridge reads reference.positions from
-    # /arm_controller/controller_state at 30 Hz and sends
+    # /arm_controller/controller_state at 100 Hz and sends
     # 0xF5 absolute-position CAN commands at the same rate.
     command_interfaces:
       - position
@@ -32,11 +32,11 @@ arm_controller:
     # Allow the trajectory to end with non-zero velocity (for smooth blending)
     allow_nonzero_velocity_at_trajectory_end: true
 
-    # Publish controller state at 30 Hz — matches bridge loop exactly
-    state_publish_rate: 30.0
+    # Publish controller state at 100 Hz — matches bridge loop exactly
+    state_publish_rate: 100.0
 
     # Action monitor rate — how often the JTC checks if the goal is reached
-    action_monitor_rate: 30.0
+    action_monitor_rate: 20.0
 
     # Don't abort the FollowJointTrajectory action if the final position
     # isn't reached within a tight time window.  0.0 = no time limit.

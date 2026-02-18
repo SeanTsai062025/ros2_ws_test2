@@ -4,7 +4,7 @@
 #       load a conflicting controller definition.
 controller_manager:
   ros__parameters:
-    update_rate: 30  # Hz — single rate, matches hardware bridge exactly
+    update_rate: 100  # Hz — single rate, matches hardware bridge exactly
 
     arm_controller:
       type: joint_trajectory_controller/JointTrajectoryController
@@ -28,11 +28,11 @@ arm_controller:
       - velocity
     allow_nonzero_velocity_at_trajectory_end: true
 
-    # Publish controller state at 30 Hz — matches bridge loop exactly
-    state_publish_rate: 30.0
+    # Publish controller state at 100 Hz — matches bridge loop exactly
+    state_publish_rate: 100.0
 
     # Action monitor rate — how often the JTC checks if the goal is reached
-    action_monitor_rate: 30.0
+    action_monitor_rate: 20.0
 
     # Don't abort on goal_time — let trajectory finish naturally
     constraints:
