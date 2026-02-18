@@ -69,6 +69,10 @@ F5_MAX_SPEED = 3000       # RPM (motor-shaft)
 F5_MIN_SPEED = 10         # RPM — avoid stalling on very small motions
 F5_FALLBACK_SPEED = 300   # RPM — moderate speed for hold / re-target
 
+# ── Constant Latency Compensation ─────────────────────────────
+# T_lookahead = 33ms (one JTC period) × 3 pipeline stages = 100ms
+T_LOOKAHEAD = 0.033 * 3  # 0.099 s  ≈ 100 ms
+
 
 @dataclass
 class MotorConfig:
@@ -357,6 +361,35 @@ class DexterHardwareBridge(Node):
                 revs * 2.0 * math.pi * motor.enc_direction)
 
     # ═══════════════════════════════════════════════════════════════
+    #  Constant Latency Compensation
+    # ═══════════════════════════════════════════════════════════════
+
+    def _compensate_latency(self, position, velocity):
+        """Constant Latency Compensation Model.
+
+        Predicts the target position by projecting the current discrete
+        position forward using the current discrete velocity and a fixed
+        lookahead time.
+
+        Formula
+        -------
+        Target_Pos(t) = D_TJC(t) + V_TJC(t) * T_lookahead
+
+        Parameters
+        ----------
+        position : float
+            D_TJC(t) — current discrete position from JTC reference (rad).
+        velocity : float
+            V_TJC(t) — current discrete velocity from JTC reference (rad/s).
+
+        Returns
+        -------
+        float
+            Compensated target position (rad).
+        """
+        return position + (velocity * T_LOOKAHEAD)
+
+    # ═══════════════════════════════════════════════════════════════
     #  Hardware CAN — Position Write  (0xF5)
     # ═══════════════════════════════════════════════════════════════
 
@@ -374,6 +407,10 @@ class DexterHardwareBridge(Node):
                 continue
 
             target_rad = pos_cmds[name]
+
+            # ── Apply constant latency compensation ────────────────
+            ref_vel = self._ref_velocities.get(name, 0.0)
+            target_rad = self._compensate_latency(target_rad, ref_vel)
 
             # ── Convert radians → encoder ticks ────────────────────
             target_ticks = round(
@@ -393,7 +430,7 @@ class DexterHardwareBridge(Node):
             # ── Convert JTC velocity → motor-shaft RPM ─────────────
             # JTC reference.velocities is in joint-space rad/s.
             # Motor shaft spins gear_ratio× faster than the output.
-            ref_vel = self._ref_velocities.get(name, 0.0)
+            # (ref_vel already retrieved above for latency compensation)
             motor_rad_s = abs(ref_vel) * motor.gear_ratio
             motor_rpm = motor_rad_s * 60.0 / (2.0 * math.pi)
 
