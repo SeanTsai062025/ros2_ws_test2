@@ -19,11 +19,14 @@ this node's timer.  No down-sampling or rate mismatch.
 Conversions applied to JTC reference → motor command:
   1. 30:1 gear ratio  (radians ↔ encoder ticks)
   2. Per-motor direction sign  (cmd_direction / enc_direction)
-No additional smoothing, scaling, or velocity processing.
+  3. JTC reference velocity → 0xF5 motor-side RPM (× gear_ratio)
+No additional smoothing or scaling.
 
-0xF5 speed & accel parameters:
-  speed = 3000 RPM  (max ceiling — never limits the trajectory)
-  accel = 0         (max acceleration — motor follows JTC instantly)
+0xF5 parameters:
+  speed = derived from JTC reference.velocities (joint rad/s → motor RPM)
+          Clamped to [F5_MIN_SPEED, 3000] RPM.  Falls back to F5_FALLBACK_SPEED
+          when JTC velocity is zero or unavailable (idle / final waypoint).
+  accel = F5_ACCEL (fixed)
 
 Encoder read:  0x31  (addition mode, signed 48-bit ticks)
 """
@@ -54,11 +57,17 @@ JOINT_NAMES = ['base', 'part1', 'part2', 'part3', 'part4', 'part5']
 TICKS_PER_REV = 16384   # 14-bit encoder
 MAX_AXIS = 8388607      # 0x7FFFFF  (24-bit signed max)
 
-# Fixed 0xF5 parameters — let JTC control the motion profile entirely.
-# speed  = 3000 RPM ceiling so motor is never speed-limited.
-# accel  = 0     → max acceleration (motor follows target instantly).
-F5_SPEED = 3000
+# Fixed 0xF5 acceleration.
 F5_ACCEL = 0
+
+# Velocity parameters for 0xF5 speed field.
+# The speed is derived from JTC reference.velocities each cycle.
+# F5_MAX_SPEED   : hard ceiling — 0xF5 protocol limit.
+# F5_MIN_SPEED   : floor so the motor still moves on tiny velocity commands.
+# F5_FALLBACK_SPEED : used when JTC velocity is zero (idle hold / final waypoint).
+F5_MAX_SPEED = 3000       # RPM (motor-shaft)
+F5_MIN_SPEED = 10         # RPM — avoid stalling on very small motions
+F5_FALLBACK_SPEED = 300   # RPM — moderate speed for hold / re-target
 
 
 @dataclass
@@ -118,6 +127,7 @@ class DexterHardwareBridge(Node):
         self.joint_positions = {n: 0.0 for n in JOINT_NAMES}
         self.joint_velocities = {n: 0.0 for n in JOINT_NAMES}
         self._ref_positions = {n: 0.0 for n in JOINT_NAMES}
+        self._ref_velocities = {n: 0.0 for n in JOINT_NAMES}
         self._last_ref_positions = {n: 0.0 for n in JOINT_NAMES}
         self._jtc_active = False
         self._encoder_read_index = 0
@@ -185,9 +195,9 @@ class DexterHardwareBridge(Node):
         self.get_logger().info('  Rate     : {} Hz (single-rate)'.format(
             self.LOOP_RATE))
         self.get_logger().info('  Cmd mode : 0xF5 absolute position')
-        self.get_logger().info('  F5 speed : {} RPM (ceiling)'.format(
-            F5_SPEED))
-        self.get_logger().info('  F5 accel : {} (max)'.format(F5_ACCEL))
+        self.get_logger().info('  F5 speed : from JTC vel (fallback {} RPM)'.format(
+            F5_FALLBACK_SPEED))
+        self.get_logger().info('  F5 accel : {} (fixed)'.format(F5_ACCEL))
         self.get_logger().info('  Joints   : {}'.format(JOINT_NAMES))
         self.get_logger().info('  Connected: {}'.format(
             sorted(self._connected)))
@@ -199,9 +209,10 @@ class DexterHardwareBridge(Node):
     # ═══════════════════════════════════════════════════════════════
 
     def _on_jtc_state(self, msg):
-        """Extract reference positions from JTC state."""
+        """Extract reference positions and velocities from JTC state."""
         names = list(msg.joint_names)
         ref_pos = msg.reference.positions
+        ref_vel = msg.reference.velocities
 
         if len(ref_pos) == 0:
             return
@@ -210,6 +221,11 @@ class DexterHardwareBridge(Node):
         for i, name in enumerate(names):
             if name in self._ref_positions and i < len(ref_pos):
                 self._ref_positions[name] = ref_pos[i]
+                # Extract reference velocity (joint-space rad/s)
+                if i < len(ref_vel):
+                    self._ref_velocities[name] = ref_vel[i]
+                else:
+                    self._ref_velocities[name] = 0.0
                 # Detect trajectory activity: reference changed significantly.
                 # Threshold of 0.001 rad (~0.06°) filters out floating-point
                 # jitter from the JTC while still catching real motion.
@@ -347,9 +363,11 @@ class DexterHardwareBridge(Node):
     def _hw_write_positions(self, pos_cmds):
         """Send 0xF5 absolute-position-by-axis commands.
 
-        Only two conversions:
-          1. 30:1 gear ratio  (radians → encoder ticks)
-          2. Per-motor cmd_direction sign
+        Conversions:
+          1. Position: 30:1 gear ratio (radians → encoder ticks) + direction sign
+          2. Velocity: JTC reference velocity (joint rad/s) → motor-shaft RPM
+             vel_motor = vel_joint × gear_ratio  (motor spins 30× faster)
+             RPM = vel_motor × 60 / (2π)
         """
         for name, motor in self.motors.items():
             if name not in self._connected:
@@ -365,15 +383,36 @@ class DexterHardwareBridge(Node):
                 * motor.cmd_direction)
 
             # Clamp to 24-bit signed range
+            if abs(target_ticks) > MAX_AXIS:
+                self.get_logger().warn(
+                    '0xF5 OVERFLOW CLAMP {}: {} ticks exceeds ±{} — '
+                    'target clamped! Check encoder / zero position.'.format(
+                        name, target_ticks, MAX_AXIS))
             target_ticks = max(-MAX_AXIS, min(MAX_AXIS, target_ticks))
+
+            # ── Convert JTC velocity → motor-shaft RPM ─────────────
+            # JTC reference.velocities is in joint-space rad/s.
+            # Motor shaft spins gear_ratio× faster than the output.
+            ref_vel = self._ref_velocities.get(name, 0.0)
+            motor_rad_s = abs(ref_vel) * motor.gear_ratio
+            motor_rpm = motor_rad_s * 60.0 / (2.0 * math.pi)
+
+            if motor_rpm < 0.1:
+                # Velocity is ~zero: trajectory endpoint or idle hold.
+                # Use a moderate fallback so the motor can still re-target
+                # if the position is slightly off.
+                speed = F5_FALLBACK_SPEED
+            else:
+                speed = int(round(motor_rpm))
+                speed = max(F5_MIN_SPEED, min(F5_MAX_SPEED, speed))
 
             # Only send when tick target changes
             if target_ticks != self._last_sent_ticks[name]:
                 self._can_send_absolute_axis(
-                    motor.can_id, F5_SPEED, F5_ACCEL, target_ticks)
+                    motor.can_id, speed, F5_ACCEL, target_ticks)
                 self.get_logger().debug(
-                    '  CAN TX M{}: {:.4f} rad -> {} ticks'.format(
-                        motor.can_id, target_rad, target_ticks))
+                    '  CAN TX M{}: {:.4f} rad -> {} ticks @ {} RPM'.format(
+                        motor.can_id, target_rad, target_ticks, speed))
                 self._last_sent_ticks[name] = target_ticks
 
     def _hw_write_manual_velocities(self):
