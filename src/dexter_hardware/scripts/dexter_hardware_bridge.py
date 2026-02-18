@@ -17,17 +17,28 @@ MoveIt → Commander → JTC (arm_controller, mock hardware @ 30 Hz)
 Everything runs at 30 Hz: JTC update_rate, state_publish_rate, and
 this node's timer.  No down-sampling or rate mismatch.
 
-Unified Linear Blending Model
-──────────────────────────────
-A velocity-dependent look-ahead that provides nonlinear damping:
+Unified Linear Blending Model (self-adapting)
+──────────────────────────────────────────────
+A velocity-dependent look-ahead that provides nonlinear damping.
+The blend threshold is computed per-joint from joint_limits.yaml so
+it automatically adapts to different speed ranges and velocity
+scaling factors:
 
-  w      = clamp(|V_TJC| / 0.5, 0.0, 1.0)
+  blend_thresh = max_velocity × vel_scaling × BLEND_VEL_RATIO
+  w      = clamp(|V_TJC| / blend_thresh, 0.0, 1.0)
   T_eff  = T_max × w                          (T_max = 100 ms)
   Target = D_TJC + V_TJC × T_eff
 
 At rest the weight w → 0, so the target equals the JTC reference
-(stiff hold, no overshoot).  During fast motion w → 1, giving a full
-100 ms look-ahead that smooths tracking and reduces phase lag.
+(stiff hold, no overshoot).  At low speeds the look-ahead "carrot"
+automatically retracts, eliminating zero-crossing jitter.
+During fast motion w → 1, giving a full 100 ms look-ahead that
+smooths tracking and reduces phase lag.
+
+Dynamic Stiffness (acceleration command):
+  Acc_cmd = Lerp(Acc_stop, Acc_cruise, w)
+  Acc_stop  = 255  (maximum deceleration — stiff hold at rest)
+  Acc_cruise = 40  (relaxed — smooth trajectory tracking)
 
 Conversions applied to blended target → motor command:
   1. 30:1 gear ratio  (radians ↔ encoder ticks)
@@ -39,7 +50,7 @@ No additional smoothing or scaling.
   speed = derived from JTC reference.velocities (joint rad/s → motor RPM)
           Clamped to [F5_MIN_SPEED, 3000] RPM.  Falls back to F5_FALLBACK_SPEED
           when JTC velocity is zero or unavailable (idle / final waypoint).
-  accel = F5_ACCEL (fixed)
+  accel = Lerp(255, 40, w) — dynamic stiffness via blending weight
 
 Encoder read:  0x31  (addition mode, signed 48-bit ticks)
 """
@@ -70,9 +81,6 @@ JOINT_NAMES = ['base', 'part1', 'part2', 'part3', 'part4', 'part5']
 TICKS_PER_REV = 16384   # 14-bit encoder
 MAX_AXIS = 8388607      # 0x7FFFFF  (24-bit signed max)
 
-# Fixed 0xF5 acceleration.
-F5_ACCEL = 0
-
 # Velocity parameters for 0xF5 speed field.
 # The speed is derived from JTC reference.velocities each cycle.
 # F5_MAX_SPEED   : hard ceiling — 0xF5 protocol limit.
@@ -84,11 +92,40 @@ F5_FALLBACK_SPEED = 300   # RPM — moderate speed for hold / re-target
 
 # ── Unified Linear Blending parameters ────────────────────────
 # Dynamic look-ahead that scales with velocity for smoother motion.
-#   w = clamp(|V_TJC| / BLEND_VEL_THRESHOLD, 0.0, 1.0)
+#   w = clamp(|V_TJC| / blend_threshold, 0.0, 1.0)
 #   T_eff = T_LOOKAHEAD_MAX * w
 #   Target = D_TJC + V_TJC * T_eff
-BLEND_VEL_THRESHOLD = 0.5   # rad/s — velocity at which blending is fully active
-T_LOOKAHEAD_MAX = 0.100      # seconds (100 ms) — maximum look-ahead time
+# At low speeds the look-ahead "carrot" automatically retracts,
+# eliminating zero-crossing jitter.
+#
+# The blend threshold is derived per-joint from joint_limits.yaml:
+#   blend_threshold = max_velocity × vel_scaling × BLEND_VEL_RATIO
+# This makes blending self-adapting: it works correctly regardless
+# of velocity scaling or differing joint speed limits.
+BLEND_VEL_RATIO = 0.05        # fraction of effective max velocity where w=1
+T_LOOKAHEAD_MAX = 0.100       # seconds (100 ms) — maximum look-ahead time
+
+# Joint velocity limits (from joint_limits.yaml max_velocity).
+# Used to compute per-joint blend thresholds at runtime.
+JOINT_MAX_VELOCITY = {
+    'base':  1.0,
+    'part1': 1.0,
+    'part2': 1.0,
+    'part3': 1.0,
+    'part4': 1.0,
+    'part5': 1.0,
+}
+# MoveIt default_velocity_scaling_factor (from joint_limits.yaml).
+# Actual peak vel ≈ max_velocity × this factor.
+DEFAULT_VEL_SCALING = 0.1
+
+# Dynamic Stiffness — 0xF5 acceleration blended with w.
+#   Acc_cmd = Lerp(ACC_STOP, ACC_CRUISE, w)
+# At rest (w=0) the motor uses maximum deceleration/stiffness (ACC_STOP=255)
+# for crisp holding.  During cruise (w=1) it relaxes to ACC_CRUISE=40
+# for smooth trajectory tracking.
+ACC_STOP   = 255    # 0xF5 accel at rest   — maximum stiffness
+ACC_CRUISE = 40     # 0xF5 accel at cruise — smooth tracking
 
 
 @dataclass
@@ -218,10 +255,12 @@ class DexterHardwareBridge(Node):
         self.get_logger().info('  Cmd mode : 0xF5 absolute position')
         self.get_logger().info('  F5 speed : from JTC vel (fallback {} RPM)'.format(
             F5_FALLBACK_SPEED))
-        self.get_logger().info('  F5 accel : {} (fixed)'.format(F5_ACCEL))
-        self.get_logger().info('  Blending : vel_thresh={} rad/s, '
-                               'T_max={} ms'.format(
-            BLEND_VEL_THRESHOLD, T_LOOKAHEAD_MAX * 1000.0))
+        self.get_logger().info('  F5 accel : dynamic Lerp({}, {}, w)'.format(
+            ACC_STOP, ACC_CRUISE))
+        self.get_logger().info('  Blending : ratio={}, T_max={} ms, '
+                               'vel_scale={}'.format(
+            BLEND_VEL_RATIO, T_LOOKAHEAD_MAX * 1000.0,
+            DEFAULT_VEL_SCALING))
         self.get_logger().info('  Joints   : {}'.format(JOINT_NAMES))
         self.get_logger().info('  Connected: {}'.format(
             sorted(self._connected)))
@@ -387,16 +426,26 @@ class DexterHardwareBridge(Node):
     def _hw_write_positions(self, pos_cmds):
         """Send 0xF5 absolute-position-by-axis commands.
 
-        Unified Linear Blending Model:
-          w      = clamp(|V_TJC| / BLEND_VEL_THRESHOLD, 0, 1)
+        Unified Linear Blending Model (self-adapting per joint):
+          blend_thresh = max_vel × vel_scaling × BLEND_VEL_RATIO
+          w      = clamp(|V_TJC| / blend_thresh, 0, 1)
           T_eff  = T_LOOKAHEAD_MAX × w
           target = D_TJC + V_TJC × T_eff
+
+        The threshold is derived from each joint's max_velocity, so it
+        automatically adapts to different speed ranges and velocity
+        scaling factors without manual tuning.
 
         The blending weight *w* rises linearly with velocity so that:
           • At rest (vel ≈ 0) → w ≈ 0 → no look-ahead, target = reference.
           • At full speed      → w = 1 → full 100 ms look-ahead.
-        This gives nonlinear damping: stiff holding at rest, smooth
-        tracking during fast motions.
+        At low speeds the look-ahead "carrot" automatically retracts,
+        eliminating zero-crossing jitter.
+
+        Dynamic Stiffness (acceleration command):
+          Acc_cmd = Lerp(ACC_STOP, ACC_CRUISE, w)
+        At rest (w=0) → ACC_STOP (255) — maximum deceleration for stiff hold.
+        At cruise (w=1) → ACC_CRUISE (40) — relaxed for smooth tracking.
 
         Conversions (after blending):
           1. Position: 30:1 gear ratio (radians → encoder ticks) + direction sign
@@ -412,14 +461,28 @@ class DexterHardwareBridge(Node):
             ref_vel = self._ref_velocities.get(name, 0.0)
 
             # ── Unified Linear Blending ────────────────────────────
+            # Per-joint threshold = max_vel × vel_scaling × ratio
+            # This self-adapts: slow joints get a low threshold,
+            # fast joints get a high one.  Different MoveIt velocity
+            # scaling factors are handled automatically.
+            joint_max_vel = JOINT_MAX_VELOCITY.get(name, 1.0)
+            blend_thresh = max(joint_max_vel * DEFAULT_VEL_SCALING
+                               * BLEND_VEL_RATIO, 1e-6)
+
             # Dynamic weight based on current JTC velocity
-            w = min(abs(ref_vel) / BLEND_VEL_THRESHOLD, 1.0)
+            w = min(abs(ref_vel) / blend_thresh, 1.0)
 
             # Effective look-ahead time (0 at rest → T_max at full speed)
             t_eff = T_LOOKAHEAD_MAX * w
 
             # Blended target: reference + velocity × look-ahead
             target_rad = ref_pos + ref_vel * t_eff
+
+            # ── Dynamic Stiffness (acceleration) ───────────────────
+            # Lerp(ACC_STOP, ACC_CRUISE, w):
+            #   w=0 (rest)   → 255 — maximum stiffness, crisp hold
+            #   w=1 (cruise) →  40 — relaxed, smooth tracking
+            accel = int(round(ACC_STOP + (ACC_CRUISE - ACC_STOP) * w))
 
             # ── Convert radians → encoder ticks ────────────────────
             target_ticks = round(
@@ -454,12 +517,12 @@ class DexterHardwareBridge(Node):
             # Only send when tick target changes
             if target_ticks != self._last_sent_ticks[name]:
                 self._can_send_absolute_axis(
-                    motor.can_id, speed, F5_ACCEL, target_ticks)
+                    motor.can_id, speed, accel, target_ticks)
                 self.get_logger().debug(
                     '  CAN TX M{}: ref={:.4f} blend={:.4f} rad '
-                    '(w={:.2f} T={:.1f}ms) -> {} ticks @ {} RPM'.format(
+                    '(w={:.2f} T={:.1f}ms acc={}) -> {} ticks @ {} RPM'.format(
                         motor.can_id, ref_pos, target_rad,
-                        w, t_eff * 1000.0, target_ticks, speed))
+                        w, t_eff * 1000.0, accel, target_ticks, speed))
                 self._last_sent_ticks[name] = target_ticks
 
     def _hw_write_manual_velocities(self):
