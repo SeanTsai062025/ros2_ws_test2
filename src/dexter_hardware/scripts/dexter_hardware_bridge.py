@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Dexter Hardware Bridge v4.0 — Single-rate 30 Hz pipeline.
+Dexter Hardware Bridge v4.1 — Single-rate 30 Hz pipeline
+                               + Unified Linear Blending.
 
 Architecture
 ────────────
@@ -16,7 +17,19 @@ MoveIt → Commander → JTC (arm_controller, mock hardware @ 30 Hz)
 Everything runs at 30 Hz: JTC update_rate, state_publish_rate, and
 this node's timer.  No down-sampling or rate mismatch.
 
-Conversions applied to JTC reference → motor command:
+Unified Linear Blending Model
+──────────────────────────────
+A velocity-dependent look-ahead that provides nonlinear damping:
+
+  w      = clamp(|V_TJC| / 0.5, 0.0, 1.0)
+  T_eff  = T_max × w                          (T_max = 100 ms)
+  Target = D_TJC + V_TJC × T_eff
+
+At rest the weight w → 0, so the target equals the JTC reference
+(stiff hold, no overshoot).  During fast motion w → 1, giving a full
+100 ms look-ahead that smooths tracking and reduces phase lag.
+
+Conversions applied to blended target → motor command:
   1. 30:1 gear ratio  (radians ↔ encoder ticks)
   2. Per-motor direction sign  (cmd_direction / enc_direction)
   3. JTC reference velocity → 0xF5 motor-side RPM (× gear_ratio)
@@ -68,6 +81,14 @@ F5_ACCEL = 0
 F5_MAX_SPEED = 3000       # RPM (motor-shaft)
 F5_MIN_SPEED = 10         # RPM — avoid stalling on very small motions
 F5_FALLBACK_SPEED = 300   # RPM — moderate speed for hold / re-target
+
+# ── Unified Linear Blending parameters ────────────────────────
+# Dynamic look-ahead that scales with velocity for smoother motion.
+#   w = clamp(|V_TJC| / BLEND_VEL_THRESHOLD, 0.0, 1.0)
+#   T_eff = T_LOOKAHEAD_MAX * w
+#   Target = D_TJC + V_TJC * T_eff
+BLEND_VEL_THRESHOLD = 0.5   # rad/s — velocity at which blending is fully active
+T_LOOKAHEAD_MAX = 0.100      # seconds (100 ms) — maximum look-ahead time
 
 
 @dataclass
@@ -190,7 +211,7 @@ class DexterHardwareBridge(Node):
         mode_str = 'SIM' if self.use_sim else 'HARDWARE'
         js_topic = '/joint_states' if self.use_sim else '/encoder_joint_states'
         self.get_logger().info('=' * 56)
-        self.get_logger().info('  Dexter Hardware Bridge v4.0')
+        self.get_logger().info('  Dexter Hardware Bridge v4.1')
         self.get_logger().info('  Mode     : {}'.format(mode_str))
         self.get_logger().info('  Rate     : {} Hz (single-rate)'.format(
             self.LOOP_RATE))
@@ -198,6 +219,9 @@ class DexterHardwareBridge(Node):
         self.get_logger().info('  F5 speed : from JTC vel (fallback {} RPM)'.format(
             F5_FALLBACK_SPEED))
         self.get_logger().info('  F5 accel : {} (fixed)'.format(F5_ACCEL))
+        self.get_logger().info('  Blending : vel_thresh={} rad/s, '
+                               'T_max={} ms'.format(
+            BLEND_VEL_THRESHOLD, T_LOOKAHEAD_MAX * 1000.0))
         self.get_logger().info('  Joints   : {}'.format(JOINT_NAMES))
         self.get_logger().info('  Connected: {}'.format(
             sorted(self._connected)))
@@ -363,7 +387,18 @@ class DexterHardwareBridge(Node):
     def _hw_write_positions(self, pos_cmds):
         """Send 0xF5 absolute-position-by-axis commands.
 
-        Conversions:
+        Unified Linear Blending Model:
+          w      = clamp(|V_TJC| / BLEND_VEL_THRESHOLD, 0, 1)
+          T_eff  = T_LOOKAHEAD_MAX × w
+          target = D_TJC + V_TJC × T_eff
+
+        The blending weight *w* rises linearly with velocity so that:
+          • At rest (vel ≈ 0) → w ≈ 0 → no look-ahead, target = reference.
+          • At full speed      → w = 1 → full 100 ms look-ahead.
+        This gives nonlinear damping: stiff holding at rest, smooth
+        tracking during fast motions.
+
+        Conversions (after blending):
           1. Position: 30:1 gear ratio (radians → encoder ticks) + direction sign
           2. Velocity: JTC reference velocity (joint rad/s) → motor-shaft RPM
              vel_motor = vel_joint × gear_ratio  (motor spins 30× faster)
@@ -373,7 +408,18 @@ class DexterHardwareBridge(Node):
             if name not in self._connected:
                 continue
 
-            target_rad = pos_cmds[name]
+            ref_pos = pos_cmds[name]
+            ref_vel = self._ref_velocities.get(name, 0.0)
+
+            # ── Unified Linear Blending ────────────────────────────
+            # Dynamic weight based on current JTC velocity
+            w = min(abs(ref_vel) / BLEND_VEL_THRESHOLD, 1.0)
+
+            # Effective look-ahead time (0 at rest → T_max at full speed)
+            t_eff = T_LOOKAHEAD_MAX * w
+
+            # Blended target: reference + velocity × look-ahead
+            target_rad = ref_pos + ref_vel * t_eff
 
             # ── Convert radians → encoder ticks ────────────────────
             target_ticks = round(
@@ -393,7 +439,6 @@ class DexterHardwareBridge(Node):
             # ── Convert JTC velocity → motor-shaft RPM ─────────────
             # JTC reference.velocities is in joint-space rad/s.
             # Motor shaft spins gear_ratio× faster than the output.
-            ref_vel = self._ref_velocities.get(name, 0.0)
             motor_rad_s = abs(ref_vel) * motor.gear_ratio
             motor_rpm = motor_rad_s * 60.0 / (2.0 * math.pi)
 
@@ -411,8 +456,10 @@ class DexterHardwareBridge(Node):
                 self._can_send_absolute_axis(
                     motor.can_id, speed, F5_ACCEL, target_ticks)
                 self.get_logger().debug(
-                    '  CAN TX M{}: {:.4f} rad -> {} ticks @ {} RPM'.format(
-                        motor.can_id, target_rad, target_ticks, speed))
+                    '  CAN TX M{}: ref={:.4f} blend={:.4f} rad '
+                    '(w={:.2f} T={:.1f}ms) -> {} ticks @ {} RPM'.format(
+                        motor.can_id, ref_pos, target_rad,
+                        w, t_eff * 1000.0, target_ticks, speed))
                 self._last_sent_ticks[name] = target_ticks
 
     def _hw_write_manual_velocities(self):
