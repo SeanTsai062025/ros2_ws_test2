@@ -132,7 +132,8 @@ class DexterHardwareBridge(Node):
         self.declare_parameter('can_interface', 'can0')
         self.declare_parameter('can_bitrate', 1000000)
         self.declare_parameter('use_sim', False)
-        self.declare_parameter('connected_joints', ['part3', 'part5'])
+        self.declare_parameter('connected_joints',
+                               ['base', 'part1', 'part2', 'part3', 'part4', 'part5'])
 
         self.use_sim = self.get_parameter('use_sim').value
         self.dt = 1.0 / self.LOOP_RATE
@@ -142,22 +143,27 @@ class DexterHardwareBridge(Node):
         # ── Motor map ───────────────────────────────────────────────
         # All motors have 30:1 gear reducer with output direction opposite to motor.
         #
-        # cmd_direction: -1 → reducer output direction opposite to motor rotation
-        # enc_direction: -1 for motors 2 & 6 (encoder feedback opposite to command)
-        #                 1 for motors 1, 3, 4, 5 (normal behavior)
+        # cmd_direction:  1 → positive MoveIt rad → positive encoder ticks
+        #                -1 → positive MoveIt rad → negative encoder ticks
+        # enc_direction:  1 → positive encoder ticks = positive rad
+        #                -1 → positive encoder ticks = negative rad
+        #
+        # Motors 1,4,5 (base, part3, part4): cmd +1 / enc -1
+        # Motors 2,6   (part1, part5):       cmd -1 / enc -1
+        # Motor  3     (part2):              cmd -1 / enc  1
         self.motors = {
             'base':  MotorConfig(joint_name='base',  can_id=1,
-                                 gear_ratio=30.0, cmd_direction=-1, enc_direction=1),
+                                 gear_ratio=30.0, cmd_direction=1, enc_direction=-1),
             'part1': MotorConfig(joint_name='part1', can_id=2,
                                  gear_ratio=30.0, cmd_direction=-1, enc_direction=-1),
             'part2': MotorConfig(joint_name='part2', can_id=3,
                                  gear_ratio=30.0, cmd_direction=-1, enc_direction=1),
             'part3': MotorConfig(joint_name='part3', can_id=4,
-                                 gear_ratio=30.0, cmd_direction=-1, enc_direction=1),
+                                 gear_ratio=30.0, cmd_direction=1, enc_direction=-1),
             'part4': MotorConfig(joint_name='part4', can_id=5,
-                                 gear_ratio=30.0, cmd_direction=-1, enc_direction=1),
+                                 gear_ratio=30.0, cmd_direction=1, enc_direction=-1),
             'part5': MotorConfig(joint_name='part5', can_id=6,
-                                 gear_ratio=30.0, cmd_direction=-1, enc_direction=-1),
+                                 gear_ratio=1.0, cmd_direction=-1, enc_direction=-1),
         }
 
         # ── State ──────────────────────────────────────────────────
