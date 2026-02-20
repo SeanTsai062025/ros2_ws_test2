@@ -6,6 +6,7 @@ from moveit_configs_utils import MoveItConfigsBuilder
 def generate_launch_description():
     moveit_config = (
         MoveItConfigsBuilder("dexter_simplify", package_name="dexter_moveit_config")
+        .planning_pipelines(pipelines=["ompl"])
         .to_moveit_configs()
     )
 

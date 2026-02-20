@@ -18,6 +18,8 @@ public:
     arm_ = std::make_shared<MoveGroupInterface>(node_, "arm");
     arm_->setMaxVelocityScalingFactor(1.0);
     arm_->setMaxAccelerationScalingFactor(1.0);
+    arm_->setPlanningTime(10.0);
+    arm_->setNumPlanningAttempts(5);
 
     joint_cmd_sub_ = node_->create_subscription<FloatArray>(
       "joint_command", 10, std::bind(&Commander::jointCmdCallback, this, _1));
@@ -38,6 +40,9 @@ public:
     arm_->setJointValueTarget(joints);
     planAndExecute(arm_);
   }
+
+  std::string getPlanningFrame() const { return arm_->getPlanningFrame(); }
+  std::string getEndEffectorLink() const { return arm_->getEndEffectorLink(); }
 
   void goToPoseTarget(double x, double y, double z,
                       double roll, double pitch, double yaw, bool cartesian_path=false)
@@ -80,10 +85,17 @@ private:
   void planAndExecute(const std::shared_ptr<MoveGroupInterface> &interface)
   {
     MoveGroupInterface::Plan plan;
-    bool success = (interface->plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
+    auto error_code = interface->plan(plan);
+    bool success = (error_code == moveit::core::MoveItErrorCode::SUCCESS);
 
     if (success) {
+      RCLCPP_INFO(node_->get_logger(), "Planning succeeded! Executing...");
       interface->execute(plan);
+    } else {
+      RCLCPP_ERROR(node_->get_logger(),
+        "Planning FAILED with error code: %d. "
+        "Check that the target pose is reachable and collision-free.",
+        error_code.val);
     }
   }
 
@@ -98,13 +110,22 @@ private:
 
   void poseCmdCallback(const PoseCmd &msg)
   {
+    // RPY comes in as degrees from the topic — convert to radians
+    double roll_rad  = msg.roll  * M_PI / 180.0;
+    double pitch_rad = msg.pitch * M_PI / 180.0;
+    double yaw_rad   = msg.yaw   * M_PI / 180.0;
+
+    RCLCPP_INFO(node_->get_logger(),
+      "Pose command: pos=(%.4f, %.4f, %.4f) rpy=(%.1f°, %.1f°, %.1f°)",
+      msg.x, msg.y, msg.z, msg.roll, msg.pitch, msg.yaw);
+
     goToPoseTarget(
       msg.x,
       msg.y, 
       msg.z,
-      msg.roll,
-      msg.pitch,
-      msg.yaw,
+      roll_rad,
+      pitch_rad,
+      yaw_rad,
       msg.cartesian_path 
     );
   }
@@ -122,6 +143,10 @@ int main(int argc, char **argv)
 
   auto node = std::make_shared<rclcpp::Node>("commander");
   auto commander = Commander(node);
+
+  RCLCPP_INFO(node->get_logger(), "Commander ready. Planning frame: %s, End effector: %s",
+    commander.getPlanningFrame().c_str(), commander.getEndEffectorLink().c_str());
+  RCLCPP_INFO(node->get_logger(), "Listening on /joint_command and /pose_command");
 
   rclcpp::spin(node);
   rclcpp::shutdown();
