@@ -1,0 +1,8 @@
+# servo_hw_pwm default parameters
+servo_hw_pwm_node:
+  ros__parameters:
+    gpio_pin: 18
+    min_pulse_us: 500.0    # 0 degrees
+    max_pulse_us: 2500.0   # 180 degrees
+    pwm_frequency_hz: 50.0
+    initial_angle: -1.0    # <0 = idle until first /servo_angle msg; 0-180 = drive on startup
