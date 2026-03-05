@@ -1,0 +1,217 @@
+open the rviz using the path urdf:
+
+ros2 launch urdf_tutorial display.launch.py model:=/home/sean/dexter_test_2/ros2_ws/src/my_robot_description/urdf/my_robot.urdf.xacro
+
+-----
+when launch the RViz, using this command can see the tf tree
+
+ros2 run tf2_tools view_frames
+
+----
+start the RViz to see the URDF using the launch file instead of the tutorial
+at this file /dexter_test_2/ros2_ws, and no env needed
+
+ros2 launch my_robot_description display.launch.xml
+
+----
+see the urdf in rviz
+
+ros2 launch my_robot_description display.launch.xml
+
+-----
+see the tf_tree
+
+ros2 run tf2_tools view_frames
+
+-------
+setup assistant:
+
+ros2 launch moveit_setup_assistant setup_assistant.launch.py
+
+------
+launch demo
+
+ros2 launch my_robot_moveit_config demo.launch.py
+-------
+
+ros2 run robot_state_publisher robot_state_publisher --ros-args -p robot_description:="$(xacro /home/sean/dexter_test_2/ros2_ws/src/my_robot_description/urdf/my_robot.urdf.xacro)"
+
+ros2 run controller_manager ros2_control_node --ros-args --params-file /home/sean/dexter_test_2/ros2_ws//src/my_robot_bringup/config/ros2_controllers.yaml
+
+ros2 run controller_manager spawner joint_state_broadcaster
+
+ros2 run controller_manager spawner arm_controller
+
+ros2 run controller_manager spawner gripper_controller
+
+ros2 launch my_robot_moveit_config move_group.launch.py
+
+ros2 run rviz2 rviz2 -d /home/sean/dexter_test_2/ros2_ws/src/my_robot_description/rviz/urdf_config.rviz
+-------
+
+ros2 launch my_robot_bringup my_robot.launch.xml
+
+ros2 run my_robot_commander_cpp test_moveit
+
+-------
+
+----------------------------------------------
+!!launch below two commands in two terminal!!
+----------------------------------------------
+ros2 launch my_robot_bringup my_robot.launch.xml
+
+ros2 run my_robot_commander_cpp commander
+----------------------------------------------------------
+!!below three command are three type of control method !!
+----------------------------------------------------------
+ros2 topic pub -1 /open_gripper example_interfaces/msg/Bool "data: false"
+
+ros2 topic pub -1 /joint_command example_interfaces/msg/Float64MultiArray "{data: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]}"
+
+
+ros2 topic pub -1 /pose_command my_robot_interfaces/msg/PoseCommand "{x: 0.7, y: 0.0, z: 0.4, roll: 0.0, pitch: 0.0, yaw: 0.0, cartesian_path: false}"
+
+
+ros2 topic pub -1 /pose_command dexter_interfaces/msg/PoseCommand "{x: 0.1, y: 0.2, z: 0.0, roll: 0.0, pitch: 0.0, yaw: 0.0, cartesian_path: false}"
+------------
+
+00000000000
+
+
+----------------------------------------------
+!!launch below two commands in two terminal!! dexter version!!!
+----------------------------------------------
+ros2 launch dexter_bringup dexter.launch.xml
+
+ros2 run dexter_commander_cpp commander
+----------------------------------------------------------
+!!below three command are three type of control method !!
+----------------------------------------------------------
+ros2 topic pub -1 /open_gripper example_interfaces/msg/Bool "data: false"
+
+ros2 topic pub -1 /joint_command example_interfaces/msg/Float64MultiArray "{data: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]}"
+
+ros2 topic pub -1 /joint_command example_interfaces/msg/Float64MultiArray "{data: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}"
+
+ros2 topic pub -1 /pose_command dexter_interfaces/msg/PoseCommand "{x: 0.01, y: 0.01, z: 0.01, roll: 0.0, pitch: 1.5, yaw: 0.0, cartesian_path: false}"
+
+---------
+
+dmesg | tail -n 80
+ip link
+
+sudo ip link set can0 down
+
+sudo ip link set can0 up type can bitrate 500000
+
+ip -details link show can0
+
+
+sudo ip link set can0 down
+sudo ip link set can0 up type can bitrate 500000 loopback on
+
+
+candump can0
+cansend can0 123#DEADBEEF
+
+---------
+
+this is the hardware test:
+
+every terminals, just for quick:
+
+conda activate dexter_ros2 && cd ~/dexter_test_2/ros2_ws && source install/setup.bash
+
+t1:
+
+sudo ip link set can0 up type can bitrate 500000 loopback on
+
+ros2 launch dexter_hardware motor_controller.launch.xml bitrate:=500000
+
+t2:
+
+ros2 topic pub -1 /motor_absolute_command \
+  dexter_hardware_interfaces/msg/MotorAbsoluteCommand \
+  '{motor_id: 6, absolute_position: 30, speed: 10, acceleration: 0}'
+
+t3:
+
+candump can0
+
+------------
+
+velocity test:
+
+ros2 launch dexter_hardware hardware_bridge.launch.xml use_sim:=false
+
+ros2 topic pub -r 10 /velocity_controller/commands std_msgs/msg/Float64MultiArray "{data: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}"
+
+-------
+
+conda activate dexter_ros2 && cd ~/dexter_test_2/ros2_ws && source install/setup.bash
+
+sudo ip link set can0 down
+
+sudo ip link set can0 txqueuelen 1000
+sudo ip link set can0 up type can bitrate 1000000
+
+ros2 launch dexter_bringup dexter.launch.xml use_hardware:=true
+
+ros2 run dexter_commander_cpp commander
+
+ros2 topic pub -1 /joint_command example_interfaces/msg/Float64MultiArray "{data: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}"
+
+# Optional: monitor real encoder positions
+ros2 topic echo /encoder_joint_states
+
+
+--------	
+
+
+ros2 topic pub -1 /joint_command_deg example_interfaces/msg/Float64MultiArray \ "{data: [0, 0, 0, 0, 0, 12.0]}"
+
+
+-------
+
+
+
+conda activate dexter_ros2 && cd ~/dexter_test_2/ros2_ws && source install/setup.bash
+
+sudo ip link set can0 down
+
+sudo ip link set can0 txqueuelen 1000
+sudo ip link set can0 up type can bitrate 1000000
+
+ros2 launch dexter_bringup dexter.launch.xml use_hardware:=true
+
+ros2 run dexter_commander_cpp commander
+
+ros2 topic pub -1 /joint_command example_interfaces/msg/Float64MultiArray "{data: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}"
+
+ros2 topic pub -1 /pose_command dexter_interfaces/msg/PoseCommand "{x: 0.0624, y: -0.0011, z: 0.31329, roll: 54.2, pitch: 88.2, yaw: 54.2, cartesian_path: false}"
+
+ros2 run dexter_control_panel control_panel
+
+
+/pose_command: pos=(0.0624, 0.0385, 0.3129) rpy=(54.2 deg, 88.2 deg, 54.2 deg) cartesian=True
+/pose_command: pos=(0.0624, -0.0407, 0.3129) rpy=(54.2 deg, 88.2 deg, 54.2 deg) cartesian=True
+/pose_command: pos=(0.0624, -0.0011, 0.3129) rpy=(54.2 deg, 88.2 deg, 54.2 deg) cartesian=True
+
+------
+
+
+ros2 topic pub -1 /pose_command dexter_interfaces/msg/PoseCommand "{x: 0.0624, y: 0.0385, z: 0.31329, roll: 54.2, pitch: 88.2, yaw: 54.2, cartesian_path: true}"
+
+ros2 topic pub -1 /pose_command dexter_interfaces/msg/PoseCommand "{x: 0.0624, y: -0.0407, z: 0.31329, roll: 54.2, pitch: 88.2, yaw: 54.2, cartesian_path: true}"
+-------
+ros2 topic pub -1 /pose_command dexter_interfaces/msg/PoseCommand "{x: 0.0624, y: -0.0011, z: 0.31329, roll: 54.2, pitch: 88.2, yaw: 54.2, cartesian_path: true}"
+-------
+ros2 topic pub -1 /pose_command dexter_interfaces/msg/PoseCommand "{x: 0.0624, y: -0.0011, z: 0.2329, roll: 54.2, pitch: 88.2, yaw: 54.2, cartesian_path: true}"
+--
+ros2 topic pub -1 /pose_command dexter_interfaces/msg/PoseCommand "{x: 0.0624, y: -0.0011, z: 0.31329, roll: 84.2, pitch: 88.2, yaw: 54.2, cartesian_path: true}"
+
+ros2 topic pub -1 /pose_command dexter_interfaces/msg/PoseCommand "{x: 0.0624, y: -0.0011, z: 0.31329, roll: 24.2, pitch: 88.2, yaw: 54.2, cartesian_path: true}"
+--
+
+
+ros2 topic pub -1 /pose_command dexter_interfaces/msg/PoseCommand "{x: 0.0624, y: -0.0011, z: 0.31329, roll: 54.2, pitch: 100.2, yaw: 54.2, cartesian_path: true}"

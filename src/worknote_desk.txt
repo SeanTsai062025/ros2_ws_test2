@@ -1,0 +1,12 @@
+this start the esp32 control :
+ros2 run esp32_motor_controller uart_bridge_node
+
+using these command to control each motor:
+ros2 topic pub --once /motor_command std_msgs/msg/String "data: 'rail2 2000 high'"
+
+"data: 'change the content here'"
+rail1/2 2000 high/low
+servo1 180 30 ----> mean servo1 degree speed
+!!the speed will cause error, still don't know why!!
+
+
