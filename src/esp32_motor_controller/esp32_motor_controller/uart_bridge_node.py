@@ -14,6 +14,7 @@ Hardware Connection:
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from std_msgs.msg import String
 
 import serial
@@ -42,19 +43,27 @@ class UartBridgeNode(Node):
         self.serial_conn = None
         self._init_serial()
         
-        # Create subscriber for motor commands
+        # Configure QoS for real-time performance
+        # BEST_EFFORT: Low latency, no retransmission (best for real-time)
+        realtime_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1
+        )
+        
+        # Create subscriber for motor commands (real-time QoS)
         self.command_sub = self.create_subscription(
             String,
             '/motor_command',
             self.command_callback,
-            10
+            realtime_qos
         )
         
-        # Create publisher for ESP32 responses
+        # Create publisher for ESP32 responses (real-time QoS)
         self.response_pub = self.create_publisher(
             String,
             '/esp32_response',
-            10
+            realtime_qos
         )
         
         # Flag for controlling the read thread

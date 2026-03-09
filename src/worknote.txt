@@ -177,6 +177,8 @@ ros2 topic pub -1 /joint_command_deg example_interfaces/msg/Float64MultiArray \ 
 
 conda activate dexter_ros2 && cd ~/dexter_test_2/ros2_ws && source install/setup.bash
 
+ip link
+
 sudo ip link set can0 down
 
 sudo ip link set can0 txqueuelen 1000
