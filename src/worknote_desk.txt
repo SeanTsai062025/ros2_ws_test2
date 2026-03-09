@@ -4,9 +4,15 @@ ros2 run esp32_motor_controller uart_bridge_node
 using these command to control each motor:
 ros2 topic pub --once /motor_command std_msgs/msg/String "data: 'rail2 2000 high'"
 
+using this new command format to send the command(faster, not using ros2 cli):
+python3 src/esp32_motor_controller/esp32_motor_controller/realtime_command_client.py "servo2 180 10"
+
+
 "data: 'change the content here'"
-rail1/2 2000 high/low
+rail2 2000 high/low
 servo1 180 30 ----> mean servo1 degree speed
 !!the speed will cause error, still don't know why!!
+
+--------
 
 
