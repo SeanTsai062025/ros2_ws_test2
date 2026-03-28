@@ -15,4 +15,3 @@ servo1 180 30 ----> mean servo1 degree speed
 
 --------
 
-

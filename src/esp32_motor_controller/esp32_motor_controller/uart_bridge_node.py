@@ -139,10 +139,12 @@ class UartBridgeNode(Node):
                         if response:
                             self.get_logger().info(f'ESP32 response: {response}')
                             
-                            # Publish response to ROS2 topic
+                            # Publish response to ROS2 topic for state machine
+                            # Format: "ESP32 response: OK: rail1 completed 16100 steps"
                             response_msg = String()
-                            response_msg.data = response
+                            response_msg.data = f'ESP32 response: {response}'
                             self.response_pub.publish(response_msg)
+                            self.get_logger().debug(f'Published to /esp32_response: {response_msg.data}')
                 else:
                     # Small sleep to prevent CPU spinning when no data
                     time.sleep(0.01)

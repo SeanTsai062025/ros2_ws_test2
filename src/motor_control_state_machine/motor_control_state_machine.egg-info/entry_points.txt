@@ -1,0 +1,2 @@
+[console_scripts]
+motor_control_state_machine = motor_control_state_machine.motor_control_state_machine:main

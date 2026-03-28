@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: motor_control_state_machine
+Version: 0.0.0
+Summary: ROS 2 motor control state machine with transitions library
+Maintainer: sean
+Maintainer-email: seantsai06@gmail.com
+License: MIT
+Requires-Dist: setuptools
+Requires-Dist: transitions
+Provides-Extra: test
+Requires-Dist: pytest; extra == "test"
+Dynamic: license
+Dynamic: maintainer
+Dynamic: maintainer-email
+Dynamic: provides-extra
+Dynamic: requires-dist
+Dynamic: summary

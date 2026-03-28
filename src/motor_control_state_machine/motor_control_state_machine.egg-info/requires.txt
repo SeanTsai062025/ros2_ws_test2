@@ -1,0 +1,5 @@
+setuptools
+transitions
+
+[test]
+pytest
