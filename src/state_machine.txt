@@ -1,1 +1,15 @@
-sean
+ros2 topic pub --once /motor_command std_msgs/msg/String "data: 'rail2 2000 high'"
+
+ros2 topic pub -1 /pose_command dexter_interfaces/msg/PoseCommand "{x: 0.0624, y: 0.0385, z: 0.31329, roll: 54.2, pitch: 88.2, yaw: 54.2, cartesian_path: true}"
+-----
+
+# Using perform1.yaml
+python3 src/motor_control_state_machine/motor_control_state_machine/motor_control_state_machine.py perform1.yaml
+
+# Using setup.yaml (default if no argument provided)
+python3 src/motor_control_state_machine/motor_control_state_machine/motor_control_state_machine.py
+
+# Or simply
+python3 src/motor_control_state_machine/motor_control_state_machine/motor_control_state_machine.py setup.yaml
+
+

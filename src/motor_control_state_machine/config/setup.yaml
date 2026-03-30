@@ -1,0 +1,86 @@
+# Motor Control State Machine Configuration
+# ==========================================
+# Modify this file to change the sequence behavior.
+# No Python code changes required.
+#
+# See ACTIONS.md for available actions and examples.
+
+# Define all states
+states:
+  - INIT
+  - RAIL1_LOW
+  - RAIL1_HIGH
+  - SERVO1_95
+  - RAIL2_LOW
+  - RAIL2_HIGH
+  - DONE
+
+# Define state transitions
+transitions:
+  - trigger: start
+    source: INIT
+    dest: RAIL1_LOW
+
+  - trigger: next
+    source: RAIL1_LOW
+    dest: RAIL2_LOW
+
+  - trigger: next
+    source: RAIL2_LOW
+    dest: SERVO1_95
+
+  - trigger: next
+    source: SERVO1_95
+    dest: RAIL1_HIGH
+
+  - trigger: next
+    source: RAIL1_HIGH
+    dest: RAIL2_HIGH
+
+  - trigger: next
+    source: RAIL2_HIGH
+    dest: DONE
+
+# Define what each state does
+actions:
+
+  DONE:
+    - log: "Initialization complete!"
+
+  RAIL1_LOW:
+    - send_and_wait:
+        command: "rail1 16000 low"
+        match: "completed"
+        then_delay: 1.0
+        then_trigger: next
+
+  RAIL2_LOW:
+    - send_and_wait:
+        command: "rail2 16000 low"
+        match: "completed"
+        then_delay: 1.0
+        then_trigger: next
+
+  SERVO1_95:
+    - send_and_wait:
+        command: "servo1 95 20"
+        match: "moved"
+        then_delay: 1.0
+        then_trigger: next
+
+  RAIL1_HIGH:
+    - send_and_wait:
+        command: "rail1 16000 high"
+        match: "completed"
+        then_delay: 1.0
+        then_trigger: next
+
+  RAIL2_HIGH:
+    - send_and_wait:
+        command: "rail2 16000 high"
+        match: "completed"
+        then_delay: 1.0
+        then_trigger: next
+
+  DONE:
+    - log: "Sequence completed successfully!"

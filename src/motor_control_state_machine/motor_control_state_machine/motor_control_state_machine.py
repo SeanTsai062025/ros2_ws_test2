@@ -2,338 +2,239 @@
 """
 Motor Control State Machine Node for ROS 2.
 
-This ROS2 node implements a state machine using the transitions library
-to safely control motor commands with a specific sequence:
-1. Send low command
-2. Wait for ESP32 response (OK: rail1 completed message)
-3. Wait 1 additional second
-4. Send high command
-
-The state machine ensures predictable, sequential execution without race conditions.
+Configuration is loaded from a YAML file specified as a command-line argument.
+Usage: python3 motor_control_state_machine.py [config_file.yaml]
+       If no config file is specified, defaults to setup.yaml
 """
 
+import os
+import sys
+import yaml
 import rclpy
 from rclpy.node import Node
-from rclpy.timer import Timer
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from std_msgs.msg import String
-
-import subprocess
-import sys
-import re
 from transitions import Machine
-from typing import Optional
+from ament_index_python.packages import get_package_share_directory
 
 
 class MotorControlStateMachine(Node):
     """
-    ROS 2 Node implementing a motor control state machine.
-    
-    State Flow:
-        INIT -> SEND_LOW -> WAIT -> SEND_HIGH -> DONE
-    
-    The machine uses transitions to ensure predictable state changes
-    and prevents concurrent execution of commands.
+    Generic ROS 2 State Machine Node.
+    Configuration loaded from YAML file.
     """
 
-    # Define all possible states
-    states = ['INIT', 'SEND_LOW', 'WAIT', 'SEND_HIGH', 'DONE', 'ERROR']
-
-    def __init__(self):
-        """Initialize the ROS 2 node and state machine."""
+    def __init__(self, config_file='setup.yaml'):
         super().__init__('motor_control_state_machine')
-        
-        # Create logger for better debugging
-        self.get_logger().info("Initializing Motor Control State Machine")
-        
-        # Configure QoS for real-time performance (match uart_bridge_node)
-        # BEST_EFFORT: Low latency, no retransmission (best for real-time)
+        self.config_file = config_file
+        self.get_logger().info(f'Initializing Motor Control State Machine with config: {config_file}')
+
+        # Load configuration from YAML
+        config = self._load_config()
+        self._states = config['states']
+        self._transitions = config['transitions']
+        self._actions = config.get('actions', {})
+
+        self.get_logger().info(f'Loaded {len(self._states)} states, {len(self._transitions)} transitions')
+
+        # QoS profile matching uart_bridge_node
         realtime_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
             depth=1
         )
-        
-        # Flag to track if execution has started
-        self._execution_started = False
-        
-        # Wait timer reference
-        self._wait_timer: Optional[Timer] = None
-        
-        # Flag to track if ESP32 response received
-        self._esp32_response_received = False
-        
-        # Initialize the state machine
+
+        # Publisher for motor commands
+        self.command_pub = self.create_publisher(String, '/motor_command', realtime_qos)
+
+        # Subscriber for ESP32 responses
+        self.response_sub = self.create_subscription(
+            String, '/esp32_response', self._on_esp32_response, realtime_qos
+        )
+
+        # Wait state management
+        self._wait_match_keyword = None
+        self._wait_then_seconds = 0.0
+        self._wait_then_trigger = None
+        self._wait_timer = None
+
+        # Initialize transitions state machine
         self.machine = Machine(
             model=self,
-            states=self.states,
-            initial='INIT',
-            auto_transitions=False  # Disable auto transitions for explicit control
+            states=self._states,
+            transitions=self._transitions,
+            initial=self._states[0],
+            auto_transitions=False,
+            after_state_change=self._on_state_change
         )
-        
-        # Define explicit transitions
-        self.machine.add_transition(
-            trigger='start_sequence',
-            source='INIT',
-            dest='SEND_LOW',
-            before=self._validate_start
-        )
-        
-        self.machine.add_transition(
-            trigger='low_sent',
-            source='SEND_LOW',
-            dest='WAIT'
-        )
-        
-        self.machine.add_transition(
-            trigger='wait_complete',
-            source='WAIT',
-            dest='SEND_HIGH'
-        )
-        
-        self.machine.add_transition(
-            trigger='high_sent',
-            source='SEND_HIGH',
-            dest='DONE'
-        )
-        
-        # Error transitions (from any state)
-        for state in self.states:
-            if state != 'ERROR':
-                self.machine.add_transition(
-                    trigger='error_occurred',
-                    source=state,
-                    dest='ERROR'
-                )
-        
-        # Create a publisher for feedback (real-time QoS)
-        self.status_pub = self.create_publisher(
-            String,
-            '/motor_control_status',
-            realtime_qos
-        )
-        
-        # Subscribe to uart_bridge_node responses (real-time QoS to match publisher)
-        self.esp32_response_sub = self.create_subscription(
-            String,
-            '/esp32_response',
-            self._esp32_response_callback,
-            realtime_qos
-        )
-        
-        # Create a timer to start the sequence after initialization
-        self.create_timer(
-            timer_period_sec=1.0,
-            callback=self._start_sequence_callback
-        )
-        
-        self.get_logger().info("State machine initialized successfully")
 
-    def _validate_start(self) -> bool:
-        """
-        Callback before transitioning from INIT to SEND_LOW.
-        Ensures the sequence only runs once.
-        """
-        if self._execution_started:
-            self.get_logger().warn("Execution already started, ignoring request")
-            return False
-        
-        self._execution_started = True
-        self.get_logger().info("Starting motor control sequence")
-        return True
+        # Start after a short delay
+        self.create_timer(0.5, self._start_once)
+        self._started = False
 
-    def _on_enter_state(self):
-        """Callback when entering any state."""
-        self.get_logger().info(f">>> Entered state: {self.state}")
-        self._publish_status(f"State: {self.state}")
+        self.get_logger().info('State machine initialized')
 
-    def _on_exit_state(self):
-        """Callback when exiting any state."""
-        self.get_logger().info(f"<<< Exiting state: {self.state}")
-
-    def _publish_status(self, message: str) -> None:
-        """Publish status update to /motor_control_status topic."""
-        msg = String()
-        msg.data = message
-        self.status_pub.publish(msg)
-
-    def _start_sequence_callback(self) -> None:
-        """Timer callback to initiate the sequence."""
-        if self.state == 'INIT' and not self._execution_started:
-            self.get_logger().info("Triggering sequence start...")
-            try:
-                self.start_sequence()
-            except Exception as e:
-                self.get_logger().error(f"Error triggering start: {e}")
-                self.error_occurred()
-
-    def _esp32_response_callback(self, msg: String) -> None:
-        """
-        Callback when ESP32 response is received.
-        
-        Expected message format:
-        "ESP32 response: OK: rail1 completed 16100 steps"
-        """
-        self.get_logger().info(f"Received ESP32 response: {msg.data}")
-        
-        # Check if this is a completion message
-        if "completed" in msg.data.lower():
-            self._esp32_response_received = True
-            self.get_logger().info("ESP32 completion confirmed")
-            
-            # If we're in WAIT state, trigger the next phase
-            if self.state == 'WAIT':
-                self.get_logger().info("Response received while in WAIT state, starting final wait...")
-                self._start_final_wait()
-
-    def on_enter_SEND_LOW(self) -> None:
-        """Callback when entering SEND_LOW state."""
-        self.get_logger().info("Executing LOW command...")
+    def _load_config(self) -> dict:
+        """Load configuration from YAML file."""
+        # Try package share directory first (installed), then local path (development)
         try:
-            self._execute_command("rail1 16100 low")
-            self.get_logger().info("LOW command executed successfully")
-            self._publish_status("LOW command sent")
-            self.low_sent()
-        except Exception as e:
-            self.get_logger().error(f"Error executing LOW command: {e}")
-            self._publish_status(f"Error: {e}")
-            self.error_occurred()
-
-    def on_enter_WAIT(self) -> None:
-        """
-        Callback when entering WAIT state.
-        Wait for ESP32 response indicating motor completion.
-        """
-        self.get_logger().info("Waiting for ESP32 response...")
-        self._esp32_response_received = False
-        self._publish_status("Waiting for ESP32 response")
-        
-        # Set a timeout in case ESP32 doesn't respond
-        # If response is received, _esp32_response_callback will trigger _start_final_wait()
-        self._wait_timer = self.create_timer(
-            timer_period_sec=30.0,  # 30 second timeout
-            callback=self._wait_timeout_callback
-        )
-
-    def _wait_timeout_callback(self) -> None:
-        """Callback when wait timer times out."""
-        if not self._esp32_response_received:
-            self.get_logger().error("ESP32 response timeout - no response received after 30 seconds")
-            self._publish_status("Error: ESP32 response timeout")
-            self.error_occurred()
-        else:
-            # Response was received before timeout, this shouldn't be called
-            self.get_logger().warn("Wait timeout called but response already received")
-
-    def _start_final_wait(self) -> None:
-        """Start the final 1-second wait before sending HIGH command."""
-        # Cancel the previous timer if it exists
-        if self._wait_timer is not None:
-            self._wait_timer.cancel()
-        
-        self.get_logger().info("Starting final 1-second wait before SEND_HIGH...")
-        self._publish_status("Final wait: 1 second")
-        
-        # Create 1-second timer
-        self._wait_timer = self.create_timer(
-            timer_period_sec=1.0,
-            callback=self._final_wait_complete_callback
-        )
-
-    def _final_wait_complete_callback(self) -> None:
-        """Callback when final wait completes."""
-        self.get_logger().info("Final wait complete, transitioning to SEND_HIGH")
-        self.wait_complete()
-
-    def on_enter_SEND_HIGH(self) -> None:
-        """Callback when entering SEND_HIGH state."""
-        self.get_logger().info("Executing HIGH command...")
-        try:
-            self._execute_command("rail1 16100 high")
-            self.get_logger().info("HIGH command executed successfully")
-            self._publish_status("HIGH command sent")
-            self.high_sent()
-        except Exception as e:
-            self.get_logger().error(f"Error executing HIGH command: {e}")
-            self._publish_status(f"Error: {e}")
-            self.error_occurred()
-
-    def on_enter_DONE(self) -> None:
-        """Callback when entering DONE state."""
-        # Cancel any pending timers
-        if self._wait_timer is not None:
-            self._wait_timer.cancel()
-            self.get_logger().info("Cancelled pending timers")
-        
-        self.get_logger().info("Sequence completed successfully!")
-        self._publish_status("Sequence completed")
-        self.get_logger().info("Motor control state machine finished")
-
-    def on_enter_ERROR(self) -> None:
-        """Callback when entering ERROR state."""
-        # Cancel any pending timers
-        if self._wait_timer is not None:
-            self._wait_timer.cancel()
-            self.get_logger().info("Cancelled pending timers")
-        
-        self.get_logger().error("Error state reached - sequence halted")
-        self._publish_status("Error occurred - sequence halted")
-
-    def _execute_command(self, command_args: str) -> None:
-        """
-        Execute a ROS 2 command via subprocess.
-        
-        Args:
-            command_args: The command arguments (e.g., "rail1 16100 low")
-        
-        Raises:
-            Exception: If command execution fails
-        """
-        full_command = [
-            'ros2', 'topic', 'pub', '--once',
-            '/motor_command',
-            'std_msgs/msg/String',
-            f"data: '{command_args}'"
-        ]
-        
-        self.get_logger().info(f"Executing: {' '.join(full_command)}")
-        
-        try:
-            result = subprocess.run(
-                full_command,
-                capture_output=True,
-                text=True,
-                timeout=5.0,  # 5 second timeout
-                check=True
+            pkg_dir = get_package_share_directory('motor_control_state_machine')
+            config_path = os.path.join(pkg_dir, 'config', self.config_file)
+        except Exception:
+            # Fallback for development: look relative to this file
+            config_path = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                'config', self.config_file
             )
-            
-            if result.returncode != 0:
-                raise Exception(f"Command failed with return code {result.returncode}")
-            
-            if result.stderr:
-                self.get_logger().warn(f"Command stderr: {result.stderr}")
-                
-        except subprocess.TimeoutExpired:
-            raise Exception(f"Command timeout after 5 seconds")
-        except subprocess.CalledProcessError as e:
-            raise Exception(f"Command failed: {e.stderr}")
-        except Exception as e:
-            raise Exception(f"Command execution error: {str(e)}")
+
+        self.get_logger().info(f'Loading config from: {config_path}')
+
+        if not os.path.exists(config_path):
+            self.get_logger().error(f'Config file not found: {config_path}')
+            raise FileNotFoundError(f'Config file not found: {config_path}')
+
+        with open(config_path, 'r') as f:
+            return yaml.safe_load(f)
+
+    def _start_once(self):
+        """Start the state machine (runs once)."""
+        if self._started:
+            return
+        self._started = True
+        self.get_logger().info(f'Starting from state: {self.state}')
+        self.start()
+
+    def _on_state_change(self):
+        """Called after every state change. Executes the state's actions."""
+        state = self.state
+        self.get_logger().info(f'>>> Entered state: {state}')
+
+        if state in self._actions:
+            self._execute_actions(self._actions[state])
+
+    def _execute_actions(self, actions: list):
+        """Execute a list of actions defined in YAML."""
+        for action in actions:
+            if isinstance(action, dict):
+                for action_type, params in action.items():
+                    self._execute_single_action(action_type, params)
+            else:
+                # Simple string action like "trigger: command_sent"
+                self.get_logger().warn(f'Unknown action format: {action}')
+
+    def _execute_single_action(self, action_type: str, params):
+        """Execute a single action by type."""
+        if action_type == 'publish_command':
+            self._action_publish_command(params)
+
+        elif action_type == 'trigger':
+            self._action_trigger(params)
+
+        elif action_type == 'wait_for_response':
+            self._action_wait_for_response(params)
+
+        elif action_type == 'send_and_wait':
+            self._action_send_and_wait(params)
+
+        elif action_type == 'delay':
+            self._action_delay(params)
+
+        elif action_type == 'log':
+            self.get_logger().info(params)
+
+        else:
+            self.get_logger().warn(f'Unknown action type: {action_type}')
+
+    def _action_publish_command(self, command: str):
+        """Publish a motor command."""
+        msg = String()
+        msg.data = command
+        self.command_pub.publish(msg)
+        self.get_logger().info(f'Published: {command}')
+
+    def _action_trigger(self, trigger_name: str):
+        """Trigger a state transition."""
+        self.get_logger().info(f'Triggering: {trigger_name}')
+        getattr(self, trigger_name)()
+
+    def _action_wait_for_response(self, params: dict):
+        """Set up waiting for ESP32 response."""
+        self._wait_match_keyword = params['match'].lower()
+        self._wait_then_seconds = params.get('then_delay', 0.0)
+        self._wait_then_trigger = params['then_trigger']
+        self.get_logger().info(f'Waiting for response containing "{params["match"]}"...')
+
+    def _action_send_and_wait(self, params: dict):
+        """Combined action: publish command, wait for response, delay, then trigger."""
+        # 1. Publish the command
+        command = params['command']
+        self._action_publish_command(command)
+
+        # 2. Set up waiting for response (reuse existing wait logic)
+        self._wait_match_keyword = params.get('match', 'completed').lower()
+        self._wait_then_seconds = params.get('then_delay', 0.0)
+        self._wait_then_trigger = params.get('then_trigger')
+        self.get_logger().info(f'Waiting for response containing "{params.get("match", "completed")}"...')
+
+    def _action_delay(self, params: dict):
+        """Set up a pure time delay."""
+        seconds = params['seconds']
+        trigger = params['then_trigger']
+        self.get_logger().info(f'Delaying {seconds}s...')
+        self._wait_then_trigger = trigger
+        self._wait_timer = self.create_timer(seconds, self._on_wait_complete)
+
+    def _on_esp32_response(self, msg: String):
+        """Handle incoming ESP32 responses."""
+        self.get_logger().info(f'Received: {msg.data}')
+
+        if self._wait_match_keyword and self._wait_match_keyword in msg.data.lower():
+            self.get_logger().info(f'Match found! Waiting {self._wait_then_seconds}s...')
+            self._wait_match_keyword = None
+
+            self._wait_timer = self.create_timer(
+                self._wait_then_seconds,
+                self._on_wait_complete
+            )
+
+    def _on_wait_complete(self):
+        """Called when wait/delay timer fires."""
+        if self._wait_timer:
+            self._wait_timer.cancel()
+            self._wait_timer = None
+
+        trigger = self._wait_then_trigger
+        self._wait_then_trigger = None
+
+        if trigger:
+            self.get_logger().info(f'Wait complete, triggering: {trigger}')
+            getattr(self, trigger)()
 
 
 def main(args=None):
-    """Main entry point for the ROS 2 node."""
+    """Main entry point."""
+    # Parse command-line arguments for config file
+    config_file = 'setup.yaml'  # default config file
+    
+    # If running as a script (not through entry point), get config from sys.argv
+    if args is None and len(sys.argv) > 1:
+        config_file = sys.argv[1]
+        # Remove the config file from sys.argv before rclpy.init() processes args
+        sys.argv = [sys.argv[0]] + sys.argv[2:]
+    
     rclpy.init(args=args)
     
-    node = MotorControlStateMachine()
-    
     try:
+        node = MotorControlStateMachine(config_file=config_file)
         rclpy.spin(node)
     except KeyboardInterrupt:
-        node.get_logger().info("Keyboard interrupt received, shutting down...")
+        rclpy.get_default_context().try_shutdown()
+    except Exception as e:
+        print(f'Error: {e}', file=sys.stderr)
+        sys.exit(1)
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

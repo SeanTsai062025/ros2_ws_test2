@@ -1,3 +1,5 @@
+import os
+from glob import glob
 from setuptools import find_packages, setup
 
 package_name = 'motor_control_state_machine'
@@ -10,8 +12,10 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        # Install config directory
+        (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
     ],
-    install_requires=['setuptools', 'transitions'],
+    install_requires=['setuptools', 'transitions', 'pyyaml'],
     zip_safe=True,
     maintainer='sean',
     maintainer_email='seantsai06@gmail.com',
