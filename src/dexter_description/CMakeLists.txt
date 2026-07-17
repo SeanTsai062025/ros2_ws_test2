@@ -10,7 +10,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 
 install(
-  DIRECTORY urdf_dexter
+  DIRECTORY fix_with_limit
   DESTINATION share/${PROJECT_NAME}
 )
 

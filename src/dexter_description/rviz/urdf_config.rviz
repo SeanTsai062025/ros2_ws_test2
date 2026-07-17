@@ -4,7 +4,7 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
-        - /MotionPlanning1/Scene Robot1/Links1/tool_link1
+        - /MotionPlanning1/Scene Robot1/Links1/gripper_tip1
       Splitter Ratio: 0.5
     Tree Height: 297
   - Class: rviz_common/Selection
@@ -99,7 +99,7 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
-        tool_link:
+        gripper_tip:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -132,7 +132,7 @@ Visualization Manager:
           Value: false
         part6:
           Value: false
-        tool_link:
+        gripper_tip:
           Value: true
       Marker Scale: 0.20000000298023224
       Name: TF
@@ -147,7 +147,7 @@ Visualization Manager:
                 part4:
                   part5:
                     part6:
-                      tool_link:
+                      gripper_tip:
                         {}
       Update Interval: 0
       Value: true
@@ -217,7 +217,7 @@ Visualization Manager:
             Show Axes: false
             Show Trail: false
             Value: true
-          tool_link:
+          gripper_tip:
             Alpha: 1
             Show Axes: false
             Show Trail: false
@@ -302,7 +302,7 @@ Visualization Manager:
             Show Axes: false
             Show Trail: false
             Value: true
-          tool_link:
+          gripper_tip:
             Alpha: 1
             Show Axes: false
             Show Trail: true

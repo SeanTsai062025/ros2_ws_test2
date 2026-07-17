@@ -7,7 +7,7 @@ Panels:
         - /MotionPlanning1
         - /MotionPlanning1/Scene Robot1
         - /MotionPlanning1/Scene Robot1/Links1
-        - /MotionPlanning1/Scene Robot1/Links1/tool_link1
+        - /MotionPlanning1/Scene Robot1/Links1/gripper_tip1
         - /MotionPlanning1/Planned Path1
       Splitter Ratio: 0.5
     Tree Height: 343
@@ -105,7 +105,7 @@ Visualization Manager:
             Show Axes: false
             Show Trail: false
             Value: true
-          tool_link:
+          gripper_tip:
             Alpha: 1
             Show Axes: false
             Show Trail: false
@@ -190,7 +190,7 @@ Visualization Manager:
             Show Axes: false
             Show Trail: false
             Value: true
-          tool_link:
+          gripper_tip:
             Alpha: 1
             Show Axes: false
             Show Trail: true

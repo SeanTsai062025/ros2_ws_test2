@@ -2,8 +2,8 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="dexter_simplify">
     <xacro:arg name="initial_positions_file" default="initial_positions.yaml" />
 
-    <!-- Import dexter_simplify urdf file -->
-    <xacro:include filename="$(find dexter_description)/urdf_dexter/robot.urdf" />
+    <!-- Import the current Dexter model and its collision geometry. -->
+    <xacro:include filename="$(find dexter_description)/fix_with_limit/robot.urdf" />
 
     <!-- Import control_xacro -->
     <xacro:include filename="dexter_simplify.ros2_control.xacro" />

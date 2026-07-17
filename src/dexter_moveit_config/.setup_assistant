@@ -1,7 +1,7 @@
 moveit_setup_assistant_config:
   urdf:
     package: dexter_description
-    relative_path: urdf_dexter/robot.urdf
+    relative_path: fix_with_limit/robot.urdf
   srdf:
     relative_path: config/dexter_simplify.srdf
   package_settings:
