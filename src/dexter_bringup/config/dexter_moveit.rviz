@@ -1,4 +1,6 @@
 Panels:
+  - Class: dexter_commander_cpp/RobotPosePanel
+    Name: Robot Pose
   - Class: rviz_common/Displays
     Help Height: 0
     Name: Displays

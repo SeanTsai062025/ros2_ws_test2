@@ -13,6 +13,15 @@
   <depend>moveit_ros_planning_interface</depend>
   <depend>example_interfaces</depend> 
   <depend>dexter_interfaces</depend>
+  <depend>pluginlib</depend>
+  <depend>rviz_common</depend>
+  <depend>sensor_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+
+  <build_depend>qtbase5-dev</build_depend>
+  <build_export_depend>qtbase5-dev</build_export_depend>
+  <exec_depend>libqt5-widgets</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

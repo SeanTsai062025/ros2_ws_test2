@@ -1,0 +1,10 @@
+<library path="robot_pose_panel">
+  <class
+    name="dexter_commander_cpp/RobotPosePanel"
+    type="dexter_commander_cpp::RobotPosePanel"
+    base_class_type="rviz_common::Panel">
+    <description>
+      Shows the live Dexter joint and Cartesian pose with command-ready copy buttons.
+    </description>
+  </class>
+</library>
