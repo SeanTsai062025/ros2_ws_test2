@@ -192,7 +192,11 @@ ros2 topic pub -1 /joint_command example_interfaces/msg/Float64MultiArray "{data
 
 ros2 topic pub -1 /pose_command dexter_interfaces/msg/PoseCommand "{x: 0.0624, y: -0.0011, z: 0.31329, roll: 54.2, pitch: 88.2, yaw: 54.2, cartesian_path: false}"
 
-ros2 run dexter_control_panel control_panel
+ros2 topic pub -1 /joint_goal_command example_interfaces/msg/Float64MultiArray "{data: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}"
+
+ros2 topic pub -1 /pose_goal_command dexter_interfaces/msg/PoseCommand \
+"{x: 0.0624, y: -0.0011, z: 0.31329, roll: 54.2, pitch: 88.2, yaw: 54.2, cartesian_path: false}"
+
 
 
 /pose_command: pos=(0.0624, 0.0385, 0.3129) rpy=(54.2 deg, 88.2 deg, 54.2 deg) cartesian=True
