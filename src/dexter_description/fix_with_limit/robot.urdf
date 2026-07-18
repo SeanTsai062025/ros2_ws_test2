@@ -178,7 +178,7 @@
   <joint name="gripper_tip_joint" type="fixed">
     <parent link="part6"/>
     <child link="gripper_tip"/>
-    <origin xyz="0 0.085 0.0285" rpy="-1.5708 0 0"/>
+    <origin xyz="0 0.073 -0.035" rpy="1.5708 3.14159 0"/>
   </joint>
   <!-- Joint from part5 to part6 -->
   <joint name="part5" type="revolute">
