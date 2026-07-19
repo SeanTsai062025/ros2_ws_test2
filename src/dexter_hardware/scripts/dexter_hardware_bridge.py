@@ -141,27 +141,29 @@ class DexterHardwareBridge(Node):
             self.get_parameter('connected_joints').value)
 
         # ── Motor map ───────────────────────────────────────────────
-        # All motors have 30:1 gear reducer with output direction opposite to motor.
+        # Gear ratios and command directions are the existing calibrated values
+        # and are intentionally unchanged here.
         #
-        # cmd_direction:  1 → positive MoveIt rad → positive encoder ticks
-        #                -1 → positive MoveIt rad → negative encoder ticks
-        # enc_direction:  1 → positive encoder ticks = positive rad
-        #                -1 → positive encoder ticks = negative rad
+        # cmd_direction:  1 → positive MoveIt rad → positive 0xF5 target ticks
+        #                -1 → positive MoveIt rad → negative 0xF5 target ticks
+        # enc_direction:  1 → positive raw 0x31 ticks = positive URDF rad
+        #                -1 → positive raw 0x31 ticks = negative URDF rad
         #
-        # Motors 1,4,5 (base, part3, part4): cmd +1 / enc -1
-        # Motors 2,6   (part1, part5):       cmd -1 / enc -1
-        # Motor  3     (part2):              cmd -1 / enc  1
+        # Command and encoder directions are independent.  The command
+        # directions below are the calibrated motor-control signs.  The
+        # encoder directions map raw 0x31 counts into the URDF/MoveIt joint
+        # convention used on /joint_states.
         self.motors = {
             'base':  MotorConfig(joint_name='base',  can_id=1,
-                                 gear_ratio=30.0, cmd_direction=1, enc_direction=-1),
+                                 gear_ratio=30.0, cmd_direction=1, enc_direction=1),
             'part1': MotorConfig(joint_name='part1', can_id=2,
-                                 gear_ratio=30.0, cmd_direction=-1, enc_direction=-1),
-            'part2': MotorConfig(joint_name='part2', can_id=3,
                                  gear_ratio=30.0, cmd_direction=-1, enc_direction=1),
+            'part2': MotorConfig(joint_name='part2', can_id=3,
+                                 gear_ratio=30.0, cmd_direction=-1, enc_direction=-1),
             'part3': MotorConfig(joint_name='part3', can_id=4,
-                                 gear_ratio=30.0, cmd_direction=1, enc_direction=-1),
+                                 gear_ratio=30.0, cmd_direction=1, enc_direction=1),
             'part4': MotorConfig(joint_name='part4', can_id=5,
-                                 gear_ratio=30.0, cmd_direction=1, enc_direction=-1),
+                                 gear_ratio=30.0, cmd_direction=1, enc_direction=1),
             'part5': MotorConfig(joint_name='part5', can_id=6,
                                  gear_ratio=1.0, cmd_direction=-1, enc_direction=-1),
         }

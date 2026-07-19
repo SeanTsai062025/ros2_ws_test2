@@ -29,8 +29,11 @@
     <param from="$(find-pkg-share dexter_bringup)/config/ros2_controllers.yaml" />
   </node>
 
+  <!-- In hardware mode, the hardware bridge is the sole /joint_states
+       publisher so RViz and MoveIt see physical encoder feedback. -->
   <node pkg="controller_manager" exec="spawner"
-        args="joint_state_broadcaster --controller-manager-timeout 30" />
+        args="joint_state_broadcaster --controller-manager-timeout 30"
+        unless="$(var use_hardware)" />
   <node pkg="controller_manager" exec="spawner"
         args="arm_controller --controller-manager-timeout 30" />
 
@@ -52,7 +55,7 @@
        Hardware Bridge v5.0 — 0xF5 position streaming at 100 Hz
        Launched only when use_hardware:=true
        Subscribes to /arm_controller/controller_state from JTC
-       Publishes  /encoder_joint_states from real encoders
+       Remaps real /encoder_joint_states feedback to /joint_states
        ════════════════════════════════════════════════════════════════════ -->
   <group if="$(var use_hardware)">
     <node pkg="dexter_hardware" exec="dexter_hardware_bridge.py"
@@ -60,6 +63,7 @@
       <param name="can_interface" value="$(var can_interface)" />
       <param name="can_bitrate"   value="$(var can_bitrate)" />
       <param name="use_sim"       value="$(var use_sim)" />
+      <remap from="/encoder_joint_states" to="/joint_states" />
     </node>
   </group>
 
