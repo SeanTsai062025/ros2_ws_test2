@@ -17,9 +17,11 @@ MoveIt → Commander → JTC (arm_controller, mock hardware @ 100 Hz)
 
 Part 5 is a direct 100 Hz pass-through: its target is exactly the JTC reference
 position with no look-ahead or blending, and its MKS acceleration field is zero
-(no motor-side ramp). CAN ID 6 is configured for 128 subdivisions, which makes
-one speed-field unit nominally 0.125 RPM instead of 1 RPM. The Part 5 speed
-field is therefore scaled by 8 so its requested physical RPM remains correct.
+(no motor-side ramp). CAN ID 6 is configured for SR_CLOSE at the Servo42D's
+documented 1600 mA default current and 128 subdivisions. SR_CLOSE avoids the
+large low-speed hunting measured with the self-adapting SR_vFOC loop. At 128
+subdivisions one speed-field unit is nominally 0.125 RPM instead of 1 RPM, so
+the Part 5 speed field is scaled by 8 to preserve the requested physical RPM.
 
 Everything runs at 100 Hz: JTC update_rate, state_publish_rate, and
 this node's timer.  No down-sampling or rate mismatch.
@@ -100,11 +102,17 @@ F5_MAX_SPEED = 3000       # RPM (motor-shaft)
 F5_MIN_SPEED = 10         # RPM — avoid stalling on very small motions
 F5_FALLBACK_SPEED = 300   # RPM — moderate speed for hold / re-target
 
-# Part 5 is direct drive, unlike the other 30:1 axes. At the motor's previous
-# 16-subdivision setting, the integer speed field had 1 RPM resolution. The
-# MKS manual specifies 1/8 physical speed at 128 subdivisions, so multiplying
-# desired RPM by 8 gives 0.125 RPM command resolution without changing the
-# requested physical speed. Acceleration 0 disables the motor-side ramp.
+# Part 5 is direct drive, unlike the other 30:1 axes. Hardware capture showed
+# that SR_vFOC's self-adapting current loop hunted badly at this axis's low
+# direct-drive speeds, even with a smooth 100 Hz F6 command. SR_CLOSE at the
+# Servo42D's documented 1600 mA default eliminated the reversals and pulses.
+# At the motor's previous 16-subdivision setting, the integer speed field had
+# 1 RPM resolution. The MKS manual specifies 1/8 physical speed at 128
+# subdivisions, so multiplying desired RPM by 8 gives 0.125 RPM command
+# resolution without changing the requested physical speed. Acceleration 0
+# disables the motor-side ramp.
+PART5_WORK_MODE = 4       # SR_CLOSE: serial interface, encoder closed loop
+PART5_WORKING_CURRENT_MA = 1600
 PART5_SUBDIVISIONS = 128
 PART5_SPEED_FIELD_SCALE = 8.0
 PART5_MIN_SPEED = 1
@@ -226,7 +234,7 @@ class DexterHardwareBridge(Node):
                 self.get_logger().info(
                     'CAN bus ready: {} @ {} bps'.format(iface, baud))
                 if 'part5' in self._connected:
-                    self._configure_part5_resolution()
+                    self._configure_part5_driver()
             except Exception as e:
                 self.get_logger().error('CAN init failed: {}'.format(e))
                 raise
@@ -271,9 +279,10 @@ class DexterHardwareBridge(Node):
             F5_FALLBACK_SPEED))
         self.get_logger().info('  F5 accel : {} (fixed)'.format(F5_ACCEL))
         self.get_logger().info(
-            '  Part 5   : direct JTC target, {} subdivisions, '
-            '0.125 RPM/unit, accel={}'.format(
-                PART5_SUBDIVISIONS, PART5_ACCEL))
+            '  Part 5   : direct JTC target, SR_CLOSE, {} mA, '
+            '{} subdivisions, 0.125 RPM/unit, accel={}'.format(
+                PART5_WORKING_CURRENT_MA, PART5_SUBDIVISIONS,
+                PART5_ACCEL))
         self.get_logger().info('  Blending : vel_thresh={} rad/s, '
                                'T_max={} ms'.format(
             BLEND_VEL_THRESHOLD, T_LOOKAHEAD_MAX * 1000.0))
@@ -585,31 +594,72 @@ class DexterHardwareBridge(Node):
             return None
         return int.from_bytes(response[1:-1], 'big', signed=False)
 
-    def _configure_part5_resolution(self):
-        """Configure and verify 128 subdivisions on only Part 5 / CAN ID 6."""
+    def _can_set_system_parameter(self, motor_id, parameter, payload):
+        """Set one MKS parameter and require a successful acknowledgement."""
+        while self.bus.recv(timeout=0.0) is not None:
+            pass
+        self.bus.send(self._can_msg(motor_id, [parameter] + list(payload)))
+        response = self._can_wait_for(motor_id, parameter)
+        if response is None or response[1] != 1:
+            raise RuntimeError(
+                'Motor {} rejected parameter 0x{:02X}: {}'.format(
+                    motor_id, parameter, response))
+        time.sleep(0.05)
+
+    def _configure_part5_driver(self):
+        """Configure and verify only Part 5 / CAN ID 6.
+
+        SR_vFOC caused a measured low-speed hunt on the direct-drive joint:
+        the encoder repeatedly stopped, reversed, and surged despite smooth
+        position and velocity commands. SR_CLOSE uses fixed current in the
+        encoder closed loop and removed that oscillation in hardware tests.
+        """
         motor_id = self.motors['part5'].can_id
-        current = self._can_read_system_parameter(motor_id, 0x84)
-        if current != PART5_SUBDIVISIONS:
+
+        work_mode = self._can_read_system_parameter(motor_id, 0x82)
+        if work_mode != PART5_WORK_MODE:
+            self.get_logger().info(
+                'Part 5 work mode: {} -> {} (SR_CLOSE)'.format(
+                    work_mode, PART5_WORK_MODE))
+            self._can_set_system_parameter(
+                motor_id, 0x82, [PART5_WORK_MODE])
+            work_mode = self._can_read_system_parameter(motor_id, 0x82)
+        if work_mode != PART5_WORK_MODE:
+            raise RuntimeError(
+                'Part 5 work-mode verification failed: {}'.format(work_mode))
+
+        working_current = self._can_read_system_parameter(motor_id, 0x83)
+        if working_current != PART5_WORKING_CURRENT_MA:
+            self.get_logger().info(
+                'Part 5 working current: {} -> {} mA'.format(
+                    working_current, PART5_WORKING_CURRENT_MA))
+            self._can_set_system_parameter(
+                motor_id, 0x83,
+                [(PART5_WORKING_CURRENT_MA >> 8) & 0xFF,
+                 PART5_WORKING_CURRENT_MA & 0xFF])
+            working_current = self._can_read_system_parameter(motor_id, 0x83)
+        if working_current != PART5_WORKING_CURRENT_MA:
+            raise RuntimeError(
+                'Part 5 current verification failed: {}'.format(
+                    working_current))
+
+        subdivisions = self._can_read_system_parameter(motor_id, 0x84)
+        if subdivisions != PART5_SUBDIVISIONS:
             self.get_logger().info(
                 'Part 5 subdivisions: {} -> {}'.format(
-                    current, PART5_SUBDIVISIONS))
-            while self.bus.recv(timeout=0.0) is not None:
-                pass
-            self.bus.send(self._can_msg(
-                motor_id, [0x84, PART5_SUBDIVISIONS]))
-            response = self._can_wait_for(motor_id, 0x84)
-            if response is None or response[1] != 1:
-                raise RuntimeError(
-                    'Part 5 rejected 128-subdivision configuration')
-            time.sleep(0.05)
-            current = self._can_read_system_parameter(motor_id, 0x84)
+                    subdivisions, PART5_SUBDIVISIONS))
+            self._can_set_system_parameter(
+                motor_id, 0x84, [PART5_SUBDIVISIONS])
+            subdivisions = self._can_read_system_parameter(motor_id, 0x84)
 
-        if current != PART5_SUBDIVISIONS:
+        if subdivisions != PART5_SUBDIVISIONS:
             raise RuntimeError(
-                'Part 5 subdivision verification failed: {}'.format(current))
+                'Part 5 subdivision verification failed: {}'.format(
+                    subdivisions))
         self.get_logger().info(
-            'Part 5 resolution verified: {} subdivisions '
-            '(nominal 0.125 RPM/speed unit)'.format(current))
+            'Part 5 driver verified: SR_CLOSE, {} mA, {} subdivisions '
+            '(nominal 0.125 RPM/speed unit)'.format(
+                working_current, subdivisions))
 
     def _can_send_absolute_axis(self, motor_id, speed, accel, abs_axis):
         """
