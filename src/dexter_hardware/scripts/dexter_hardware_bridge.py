@@ -15,6 +15,12 @@ MoveIt → Commander → JTC (arm_controller, mock hardware @ 100 Hz)
    └─ WRITE : 0xF5 absolute-position by axis (encoder ticks)
               — ALL connected motors every cycle
 
+Part 5 is a direct 100 Hz pass-through: its target is exactly the JTC reference
+position with no look-ahead or blending, and its MKS acceleration field is zero
+(no motor-side ramp). CAN ID 6 is configured for 128 subdivisions, which makes
+one speed-field unit nominally 0.125 RPM instead of 1 RPM. The Part 5 speed
+field is therefore scaled by 8 so its requested physical RPM remains correct.
+
 Everything runs at 100 Hz: JTC update_rate, state_publish_rate, and
 this node's timer.  No down-sampling or rate mismatch.
 Every cycle reads ALL connected encoders and writes ALL connected motors.
@@ -24,8 +30,8 @@ CAN bus budget (1 Mbps):
   Per cycle (6 motors): 6 read TX + 6 read RX + 6 write TX = 18 frames
   ≈ 2.3 ms  ≪  10 ms cycle budget.  Comfortable margin.
 
-Unified Linear Blending Model
-──────────────────────────────
+Unified Linear Blending Model (Parts 0–4 only)
+──────────────────────────────────────────────
 A velocity-dependent look-ahead that provides nonlinear damping:
 
   w      = clamp(|V_TJC| / 0.5, 0.0, 1.0)
@@ -48,9 +54,9 @@ No additional smoothing or scaling.
 
 0xF5 parameters:
   speed = derived from JTC reference.velocities (joint rad/s → motor RPM)
-          Clamped to [F5_MIN_SPEED, 3000] RPM.  Falls back to F5_FALLBACK_SPEED
-          when JTC velocity is zero or unavailable (idle / final waypoint).
-  accel = F5_ACCEL (fixed)
+          The 30:1 axes use the shared floor/fallback. Part 5 uses 128
+          subdivisions and an 8× speed-field scale (0.125 RPM/unit).
+  accel = 0. Part 5 therefore has no motor-side acceleration smoothing.
 
 Encoder read:  0x31  (addition mode, signed 48-bit ticks)
 """
@@ -61,6 +67,7 @@ import can
 import sys
 import os
 import math
+import time
 from dataclasses import dataclass
 
 from sensor_msgs.msg import JointState
@@ -84,7 +91,7 @@ MAX_AXIS = 8388607      # 0x7FFFFF  (24-bit signed max)
 # Fixed 0xF5 acceleration.
 F5_ACCEL = 0
 
-# Velocity parameters for 0xF5 speed field.
+# Default velocity parameters for the 30:1 axes' 0xF5 speed field.
 # The speed is derived from JTC reference.velocities each cycle.
 # F5_MAX_SPEED   : hard ceiling — 0xF5 protocol limit.
 # F5_MIN_SPEED   : floor so the motor still moves on tiny velocity commands.
@@ -92,6 +99,17 @@ F5_ACCEL = 0
 F5_MAX_SPEED = 3000       # RPM (motor-shaft)
 F5_MIN_SPEED = 10         # RPM — avoid stalling on very small motions
 F5_FALLBACK_SPEED = 300   # RPM — moderate speed for hold / re-target
+
+# Part 5 is direct drive, unlike the other 30:1 axes. At the motor's previous
+# 16-subdivision setting, the integer speed field had 1 RPM resolution. The
+# MKS manual specifies 1/8 physical speed at 128 subdivisions, so multiplying
+# desired RPM by 8 gives 0.125 RPM command resolution without changing the
+# requested physical speed. Acceleration 0 disables the motor-side ramp.
+PART5_SUBDIVISIONS = 128
+PART5_SPEED_FIELD_SCALE = 8.0
+PART5_MIN_SPEED = 1
+PART5_FALLBACK_SPEED = 1
+PART5_ACCEL = 0
 
 # ── Unified Linear Blending parameters ────────────────────────
 # Dynamic look-ahead that scales with velocity for smoother motion.
@@ -119,6 +137,10 @@ class MotorConfig:
     # enc_direction:  1 → positive encoder ticks = positive rad
     #                -1 → positive encoder ticks = negative rad
     enc_direction: int = 1
+    min_speed_rpm: int = F5_MIN_SPEED
+    fallback_speed_rpm: int = F5_FALLBACK_SPEED
+    acceleration: int = F5_ACCEL
+    speed_field_scale: float = 1.0
 
 
 class DexterHardwareBridge(Node):
@@ -165,7 +187,11 @@ class DexterHardwareBridge(Node):
             'part4': MotorConfig(joint_name='part4', can_id=5,
                                  gear_ratio=30.0, cmd_direction=1, enc_direction=1),
             'part5': MotorConfig(joint_name='part5', can_id=6,
-                                 gear_ratio=1.0, cmd_direction=-1, enc_direction=-1),
+                                 gear_ratio=1.0, cmd_direction=-1, enc_direction=-1,
+                                 min_speed_rpm=PART5_MIN_SPEED,
+                                 fallback_speed_rpm=PART5_FALLBACK_SPEED,
+                                 acceleration=PART5_ACCEL,
+                                 speed_field_scale=PART5_SPEED_FIELD_SCALE),
         }
 
         # ── State ──────────────────────────────────────────────────
@@ -199,6 +225,8 @@ class DexterHardwareBridge(Node):
                     interface='socketcan', channel=iface, bitrate=baud)
                 self.get_logger().info(
                     'CAN bus ready: {} @ {} bps'.format(iface, baud))
+                if 'part5' in self._connected:
+                    self._configure_part5_resolution()
             except Exception as e:
                 self.get_logger().error('CAN init failed: {}'.format(e))
                 raise
@@ -242,6 +270,10 @@ class DexterHardwareBridge(Node):
         self.get_logger().info('  F5 speed : from JTC vel (fallback {} RPM)'.format(
             F5_FALLBACK_SPEED))
         self.get_logger().info('  F5 accel : {} (fixed)'.format(F5_ACCEL))
+        self.get_logger().info(
+            '  Part 5   : direct JTC target, {} subdivisions, '
+            '0.125 RPM/unit, accel={}'.format(
+                PART5_SUBDIVISIONS, PART5_ACCEL))
         self.get_logger().info('  Blending : vel_thresh={} rad/s, '
                                'T_max={} ms'.format(
             BLEND_VEL_THRESHOLD, T_LOOKAHEAD_MAX * 1000.0))
@@ -409,7 +441,7 @@ class DexterHardwareBridge(Node):
     def _hw_write_positions(self, pos_cmds):
         """Send 0xF5 absolute-position-by-axis commands to ALL connected motors.
 
-        Unified Linear Blending Model:
+        Unified Linear Blending Model (Parts 0–4 only):
           w      = clamp(|V_TJC| / BLEND_VEL_THRESHOLD, 0, 1)
           T_eff  = T_LOOKAHEAD_MAX × w
           target = D_TJC + V_TJC × T_eff
@@ -422,6 +454,10 @@ class DexterHardwareBridge(Node):
 
         At 100 Hz (dt = 10 ms) T_max = 30 ms spans 3 control cycles,
         matching the 3-cycle ratio from the original 30 Hz / 100 ms design.
+
+        Part 5 bypasses this model: target = JTC reference position, with no
+        look-ahead and no motor-side acceleration ramp. Its F5 frame is sent
+        every bridge cycle.
 
         Conversions (after blending):
           1. Position: 30:1 gear ratio (radians → encoder ticks) + direction sign
@@ -436,15 +472,17 @@ class DexterHardwareBridge(Node):
             ref_pos = pos_cmds[name]
             ref_vel = self._ref_velocities.get(name, 0.0)
 
-            # ── Unified Linear Blending ────────────────────────────
-            # Dynamic weight based on current JTC velocity
-            w = min(abs(ref_vel) / BLEND_VEL_THRESHOLD, 1.0)
-
-            # Effective look-ahead time (0 at rest → T_max at full speed)
-            t_eff = T_LOOKAHEAD_MAX * w
-
-            # Blended target: reference + velocity × look-ahead
-            target_rad = ref_pos + ref_vel * t_eff
+            if name == 'part5':
+                # Part 5 is an exact 100 Hz JTC pass-through. Do not apply the
+                # global velocity blend or any look-ahead to this joint.
+                w = 0.0
+                t_eff = 0.0
+                target_rad = ref_pos
+            else:
+                # Existing unified blending remains unchanged on Parts 0–4.
+                w = min(abs(ref_vel) / BLEND_VEL_THRESHOLD, 1.0)
+                t_eff = T_LOOKAHEAD_MAX * w
+                target_rad = ref_pos + ref_vel * t_eff
 
             # ── Convert radians → encoder ticks ────────────────────
             target_ticks = round(
@@ -467,22 +505,36 @@ class DexterHardwareBridge(Node):
             motor_rad_s = abs(ref_vel) * motor.gear_ratio
             motor_rpm = motor_rad_s * 60.0 / (2.0 * math.pi)
 
-            if motor_rpm < 0.1:
+            if name == 'part5':
+                # At 128 subdivisions each speed-field unit is nominally
+                # 0.125 RPM. Scaling desired RPM by 8 preserves physical speed
+                # while increasing command resolution eightfold.
+                if motor_rpm < 1e-6:
+                    speed = motor.fallback_speed_rpm
+                else:
+                    speed = int(round(
+                        motor_rpm * motor.speed_field_scale))
+                    speed = max(motor.min_speed_rpm,
+                                min(F5_MAX_SPEED, speed))
+            elif motor_rpm < 0.1:
                 # Velocity is ~zero: trajectory endpoint or idle hold.
                 # Use a moderate fallback so the motor can still re-target
                 # if the position is slightly off.
-                speed = F5_FALLBACK_SPEED
+                speed = motor.fallback_speed_rpm
             else:
                 speed = int(round(motor_rpm))
-                speed = max(F5_MIN_SPEED, min(F5_MAX_SPEED, speed))
+                speed = max(motor.min_speed_rpm,
+                            min(F5_MAX_SPEED, speed))
 
-            # Only send when tick target changes
-            if target_ticks != self._last_sent_ticks[name]:
+            # Forward Part 5 on every 100 Hz bridge cycle, even when adjacent
+            # floating-point references quantize to the same encoder tick.
+            # Parts 0–4 retain their existing change-only behavior.
+            if name == 'part5' or target_ticks != self._last_sent_ticks[name]:
                 self._can_send_absolute_axis(
-                    motor.can_id, speed, F5_ACCEL, target_ticks)
+                    motor.can_id, speed, motor.acceleration, target_ticks)
                 self.get_logger().debug(
-                    '  CAN TX M{}: ref={:.4f} blend={:.4f} rad '
-                    '(w={:.2f} T={:.1f}ms) -> {} ticks @ {} RPM'.format(
+                    '  CAN TX M{}: ref={:.4f} target={:.4f} rad '
+                    '(w={:.2f} T={:.1f}ms) -> {} ticks @ speed_field={}'.format(
                         motor.can_id, ref_pos, target_rad,
                         w, t_eff * 1000.0, target_ticks, speed))
                 self._last_sent_ticks[name] = target_ticks
@@ -494,7 +546,8 @@ class DexterHardwareBridge(Node):
                 continue
             vel_rad_s = self._manual_vels[name]
             rpm = (vel_rad_s * 60.0) / (2.0 * math.pi) * motor.cmd_direction
-            self._can_send_speed(motor.can_id, rpm, accel=0)
+            self._can_send_speed(
+                motor.can_id, rpm * motor.speed_field_scale, accel=0)
 
     # ═══════════════════════════════════════════════════════════════
     #  CAN Primitives
@@ -508,6 +561,56 @@ class DexterHardwareBridge(Node):
             data=bytearray(data) + bytes([crc]),
             is_extended_id=False)
 
+    def _can_wait_for(self, motor_id, command, timeout=0.2):
+        """Wait for one checksum-valid response from a specific motor."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            response = self.bus.recv(timeout=deadline - time.monotonic())
+            if response is None or response.arbitration_id != motor_id:
+                continue
+            data = bytes(response.data)
+            if len(data) < 3 or data[0] != command:
+                continue
+            if ((motor_id + sum(data[:-1])) & 0xFF) == data[-1]:
+                return data
+        return None
+
+    def _can_read_system_parameter(self, motor_id, parameter):
+        """Read one MKS system parameter using command 0x00."""
+        while self.bus.recv(timeout=0.0) is not None:
+            pass
+        self.bus.send(self._can_msg(motor_id, [0x00, parameter]))
+        response = self._can_wait_for(motor_id, parameter)
+        if response is None or response[1:-1] == b'\xff\xff':
+            return None
+        return int.from_bytes(response[1:-1], 'big', signed=False)
+
+    def _configure_part5_resolution(self):
+        """Configure and verify 128 subdivisions on only Part 5 / CAN ID 6."""
+        motor_id = self.motors['part5'].can_id
+        current = self._can_read_system_parameter(motor_id, 0x84)
+        if current != PART5_SUBDIVISIONS:
+            self.get_logger().info(
+                'Part 5 subdivisions: {} -> {}'.format(
+                    current, PART5_SUBDIVISIONS))
+            while self.bus.recv(timeout=0.0) is not None:
+                pass
+            self.bus.send(self._can_msg(
+                motor_id, [0x84, PART5_SUBDIVISIONS]))
+            response = self._can_wait_for(motor_id, 0x84)
+            if response is None or response[1] != 1:
+                raise RuntimeError(
+                    'Part 5 rejected 128-subdivision configuration')
+            time.sleep(0.05)
+            current = self._can_read_system_parameter(motor_id, 0x84)
+
+        if current != PART5_SUBDIVISIONS:
+            raise RuntimeError(
+                'Part 5 subdivision verification failed: {}'.format(current))
+        self.get_logger().info(
+            'Part 5 resolution verified: {} subdivisions '
+            '(nominal 0.125 RPM/speed unit)'.format(current))
+
     def _can_send_absolute_axis(self, motor_id, speed, accel, abs_axis):
         """
         0xF5 — Absolute Motion by Axis (encoder ticks).
@@ -516,7 +619,8 @@ class DexterHardwareBridge(Node):
             [0xF5] [SPD_H] [SPD_L] [ACC]
             [AXIS_H] [AXIS_M] [AXIS_L] [CRC]
 
-        speed    : 0–3000 RPM (unsigned, top 4 bits only)
+        speed    : 0–3000 protocol units (RPM at 16/32/64 subdivisions;
+                   nominally 0.125 RPM/unit for Part 5 at 128 subdivisions)
         accel    : 0–255
         abs_axis : signed 24-bit encoder ticks (−8 388 607 … +8 388 607)
 
@@ -579,14 +683,31 @@ class DexterHardwareBridge(Node):
         msg = self._can_msg(motor_id, data)
 
         try:
-            self.bus.send(msg)
-            resp = self.bus.recv(timeout=0.005)
+            if motor_id == 6:
+                # F5 can publish both "starting" and "complete" status
+                # frames. During 100 Hz Part 5 streaming those replies can
+                # sit ahead of the requested 0x31 frame and starve feedback.
+                # Drain only this direct-drive axis before making a fresh
+                # request; no other motor's receive behavior is changed.
+                while self.bus.recv(timeout=0.0) is not None:
+                    pass
 
-            if resp and resp.arbitration_id == motor_id:
-                if len(resp.data) >= 7 and resp.data[0] == 0x31:
+            self.bus.send(msg)
+            deadline = time.monotonic() + 0.005
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0.0:
+                    return None
+                resp = self.bus.recv(timeout=remaining)
+                if resp is None:
+                    return None
+                if (resp.arbitration_id == motor_id
+                        and len(resp.data) >= 7
+                        and resp.data[0] == 0x31):
                     return int.from_bytes(
                         resp.data[1:7], 'big', signed=True)
-            return None
+                if motor_id != 6:
+                    return None
         except can.CanError as e:
             self.get_logger().warn(
                 'Encoder read fail motor {}: {}'.format(motor_id, e))

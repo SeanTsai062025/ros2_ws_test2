@@ -7,8 +7,13 @@
        description="true = launch hardware bridge with real CAN; false = sim only" />
   <arg name="use_sim" default="false"
        description="hardware bridge sim mode (no CAN, fake positions)" />
+  <arg name="use_rviz" default="true"
+       description="launch RViz; disable for headless hardware tests" />
   <arg name="can_interface" default="can0" />
   <arg name="can_bitrate" default="1000000" />
+  <!-- Restrict this list during single-axis hardware tests. -->
+  <arg name="connected_joints"
+       default="['base', 'part1', 'part2', 'part3', 'part4', 'part5']" />
 
   <let name="urdf_path"
        value="$(find-pkg-share dexter_moveit_config)/config/dexter_simplify.urdf.xacro"/>
@@ -46,7 +51,8 @@
        RViz — use the MoveIt RViz launcher so that robot_description_semantic
        (SRDF) and kinematics params are passed to the RViz node.
        ════════════════════════════════════════════════════════════════════ -->
-  <include file="$(find-pkg-share dexter_moveit_config)/launch/moveit_rviz.launch.py">
+  <include file="$(find-pkg-share dexter_moveit_config)/launch/moveit_rviz.launch.py"
+           if="$(var use_rviz)">
     <arg name="rviz_config"
          value="$(var rviz_config_path)" />
   </include>
@@ -63,6 +69,7 @@
       <param name="can_interface" value="$(var can_interface)" />
       <param name="can_bitrate"   value="$(var can_bitrate)" />
       <param name="use_sim"       value="$(var use_sim)" />
+      <param name="connected_joints" value="$(var connected_joints)" />
       <remap from="/encoder_joint_states" to="/joint_states" />
     </node>
   </group>
