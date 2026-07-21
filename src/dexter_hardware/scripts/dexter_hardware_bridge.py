@@ -38,11 +38,14 @@ A velocity-dependent look-ahead that provides nonlinear damping:
 
   w      = clamp(|V_TJC| / 0.5, 0.0, 1.0)
   T_eff  = T_max × w                          (T_max = 30 ms)
-  Target = D_TJC + V_TJC × T_eff
+  Lead   = clamp(V_TJC × T_eff, ±0.030 rad)
+  Target = D_TJC + Lead
 
 At rest the weight w → 0, so the target equals the JTC reference
 (stiff hold, no overshoot).  During fast motion w → 1, giving a full
-30 ms look-ahead that smooths tracking and reduces phase lag.
+30 ms look-ahead that smooths tracking and reduces phase lag. The lead offset
+is capped at 30 mrad so operation above the original 1 rad/s maximum cannot
+increase the maximum extrapolated position.
 
 T_max rationale: At 100 Hz the dt is 10 ms. A 30 ms look-ahead (3 cycles)
 is proportionally equivalent to the 100 ms (3 cycles) used at 30 Hz,
@@ -123,7 +126,8 @@ PART5_ACCEL = 0
 # Dynamic look-ahead that scales with velocity for smoother motion.
 #   w = clamp(|V_TJC| / BLEND_VEL_THRESHOLD, 0.0, 1.0)
 #   T_eff = T_LOOKAHEAD_MAX * w
-#   Target = D_TJC + V_TJC * T_eff
+#   Lead = clamp(V_TJC * T_eff, ±MAX_LOOKAHEAD_OFFSET)
+#   Target = D_TJC + Lead
 #
 # At 100 Hz (dt = 10 ms) a 30 ms look-ahead spans 3 control cycles,
 # which is proportionally equivalent to 100 ms at 30 Hz (also 3 cycles).
@@ -131,6 +135,7 @@ PART5_ACCEL = 0
 # update rate inherently provides smoother tracking.
 BLEND_VEL_THRESHOLD = 0.5   # rad/s — velocity at which blending is fully active
 T_LOOKAHEAD_MAX = 0.030      # seconds (30 ms) — maximum look-ahead time
+MAX_LOOKAHEAD_OFFSET = 0.030  # radians — preserves the old 1 rad/s maximum lead
 
 
 @dataclass
@@ -284,8 +289,9 @@ class DexterHardwareBridge(Node):
                 PART5_WORKING_CURRENT_MA, PART5_SUBDIVISIONS,
                 PART5_ACCEL))
         self.get_logger().info('  Blending : vel_thresh={} rad/s, '
-                               'T_max={} ms'.format(
-            BLEND_VEL_THRESHOLD, T_LOOKAHEAD_MAX * 1000.0))
+                               'T_max={} ms, lead_max={} rad'.format(
+            BLEND_VEL_THRESHOLD, T_LOOKAHEAD_MAX * 1000.0,
+            MAX_LOOKAHEAD_OFFSET))
         self.get_logger().info('  Enc read : ALL connected motors every cycle')
         self.get_logger().info('  Joints   : {}'.format(JOINT_NAMES))
         self.get_logger().info('  Connected: {}'.format(
@@ -453,7 +459,8 @@ class DexterHardwareBridge(Node):
         Unified Linear Blending Model (Parts 0–4 only):
           w      = clamp(|V_TJC| / BLEND_VEL_THRESHOLD, 0, 1)
           T_eff  = T_LOOKAHEAD_MAX × w
-          target = D_TJC + V_TJC × T_eff
+          lead   = clamp(V_TJC × T_eff, ±MAX_LOOKAHEAD_OFFSET)
+          target = D_TJC + lead
 
         The blending weight *w* rises linearly with velocity so that:
           • At rest (vel ≈ 0) → w ≈ 0 → no look-ahead, target = reference.
@@ -491,7 +498,10 @@ class DexterHardwareBridge(Node):
                 # Existing unified blending remains unchanged on Parts 0–4.
                 w = min(abs(ref_vel) / BLEND_VEL_THRESHOLD, 1.0)
                 t_eff = T_LOOKAHEAD_MAX * w
-                target_rad = ref_pos + ref_vel * t_eff
+                lookahead_offset = max(
+                    -MAX_LOOKAHEAD_OFFSET,
+                    min(MAX_LOOKAHEAD_OFFSET, ref_vel * t_eff))
+                target_rad = ref_pos + lookahead_offset
 
             # ── Convert radians → encoder ticks ────────────────────
             target_ticks = round(

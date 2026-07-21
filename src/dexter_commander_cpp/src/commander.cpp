@@ -1,13 +1,27 @@
 #include <rclcpp/rclcpp.hpp>
 #include <moveit/move_group_interface/move_group_interface.hpp>
 #include <example_interfaces/msg/float64_multi_array.hpp>
+#include <dexter_interfaces/msg/joint_command.hpp>
 #include <dexter_interfaces/msg/pose_command.hpp>
+
+#include <cmath>
 
 using MoveGroupInterface = moveit::planning_interface::MoveGroupInterface;
 using FloatArray = example_interfaces::msg::Float64MultiArray;
+using JointCmd = dexter_interfaces::msg::JointCommand;
 using PoseCmd = dexter_interfaces::msg::PoseCommand;
 
 using namespace std::placeholders;
+
+namespace
+{
+
+constexpr double kMinSpeedScaling = 0.2;
+constexpr double kMaxSpeedScaling = 1.0;
+constexpr double kDefaultSpeedScaling = 0.5;
+constexpr double kLegacySpeedScaling = kDefaultSpeedScaling;
+
+}  // namespace
 
 class Commander
 {
@@ -16,26 +30,37 @@ public:
   {
     node_ = node;
     arm_ = std::make_shared<MoveGroupInterface>(node_, "arm");
-    arm_->setMaxVelocityScalingFactor(1.0);
-    arm_->setMaxAccelerationScalingFactor(1.0);
+    arm_->setMaxVelocityScalingFactor(kDefaultSpeedScaling);
+    arm_->setMaxAccelerationScalingFactor(kDefaultSpeedScaling);
     arm_->setPlanningTime(10.0);
     arm_->setNumPlanningAttempts(5);
 
-    joint_cmd_sub_ = node_->create_subscription<FloatArray>(
+    joint_cmd_sub_ = node_->create_subscription<JointCmd>(
       "joint_command", 10, std::bind(&Commander::jointCmdCallback, this, _1));
+    legacy_joint_cmd_sub_ = node_->create_subscription<FloatArray>(
+      "joint_command_legacy", 10,
+      std::bind(&Commander::legacyJointCmdCallback, this, _1));
     pose_cmd_sub_ = node_->create_subscription<PoseCmd>(
       "pose_command", 10, std::bind(&Commander::poseCmdCallback, this, _1));
   }
 
-  void goToNamedTarget(const std::string &name)
+  void goToNamedTarget(
+    const std::string &name, double speed_scaling = kDefaultSpeedScaling)
   {
+    if (!applySpeedScaling(speed_scaling, "named target")) {
+      return;
+    }
     arm_->setStartStateToCurrentState();
     arm_->setNamedTarget(name);
     planAndExecute(arm_);
   }
 
-  void goToJointTarget(const std::vector<double> &joints)
+  void goToJointTarget(
+    const std::vector<double> &joints, double speed_scaling)
   {
+    if (!applySpeedScaling(speed_scaling, "joint command")) {
+      return;
+    }
     arm_->setStartStateToCurrentState();
     arm_->setJointValueTarget(joints);
     planAndExecute(arm_);
@@ -45,8 +70,13 @@ public:
   std::string getEndEffectorLink() const { return arm_->getEndEffectorLink(); }
 
   void goToPoseTarget(double x, double y, double z,
-                      double roll, double pitch, double yaw, bool cartesian_path=false)
+                      double roll, double pitch, double yaw,
+                      bool cartesian_path, double speed_scaling)
   {
+    if (!applySpeedScaling(speed_scaling, "pose command")) {
+      return;
+    }
+
     tf2::Quaternion q;
     q.setRPY(roll, pitch, yaw);
     q = q.normalize();
@@ -82,6 +112,28 @@ public:
 
 private:
 
+  bool applySpeedScaling(double requested_scaling, const char * command_name)
+  {
+    if (!std::isfinite(requested_scaling) ||
+        requested_scaling < kMinSpeedScaling ||
+        requested_scaling > kMaxSpeedScaling)
+    {
+      RCLCPP_ERROR(
+        node_->get_logger(),
+        "Rejected %s: speed_scaling must be in [%.1f, %.1f] (received %.3f)",
+        command_name, kMinSpeedScaling, kMaxSpeedScaling, requested_scaling);
+      return false;
+    }
+
+    arm_->setMaxVelocityScalingFactor(requested_scaling);
+    arm_->setMaxAccelerationScalingFactor(requested_scaling);
+    RCLCPP_INFO(
+      node_->get_logger(),
+      "%s speed_scaling=%.2f (velocity and acceleration)",
+      command_name, requested_scaling);
+    return true;
+  }
+
   void planAndExecute(const std::shared_ptr<MoveGroupInterface> &interface)
   {
     MoveGroupInterface::Plan plan;
@@ -99,12 +151,25 @@ private:
     }
   }
 
-  void jointCmdCallback(const FloatArray &msg)
+  void jointCmdCallback(const JointCmd &msg)
   {
-    auto joints = msg.data;
+    const std::vector<double> joints(msg.positions.begin(), msg.positions.end());
+    goToJointTarget(joints, msg.speed_scaling);
+  }
 
-    if (joints.size() == 6) {
-      goToJointTarget(joints);
+  void legacyJointCmdCallback(const FloatArray &msg)
+  {
+    if (msg.data.size() == 6) {
+      RCLCPP_WARN_ONCE(
+        node_->get_logger(),
+        "/joint_command_legacy is deprecated; use dexter_interfaces/msg/JointCommand on "
+        "/joint_command to select speed. Legacy commands retain the old 1 rad/s maximum");
+      goToJointTarget(msg.data, kLegacySpeedScaling);
+    } else {
+      RCLCPP_ERROR(
+        node_->get_logger(),
+        "Rejected legacy joint command: expected 6 positions, received %zu",
+        msg.data.size());
     }
   }
 
@@ -116,8 +181,8 @@ private:
     double yaw_rad   = msg.yaw   * M_PI / 180.0;
 
     RCLCPP_INFO(node_->get_logger(),
-      "Pose command: pos=(%.4f, %.4f, %.4f) rpy=(%.1f°, %.1f°, %.1f°)",
-      msg.x, msg.y, msg.z, msg.roll, msg.pitch, msg.yaw);
+      "Pose command: pos=(%.4f, %.4f, %.4f) rpy=(%.1f°, %.1f°, %.1f°) speed=%.2f",
+      msg.x, msg.y, msg.z, msg.roll, msg.pitch, msg.yaw, msg.speed_scaling);
 
     goToPoseTarget(
       msg.x,
@@ -126,14 +191,16 @@ private:
       roll_rad,
       pitch_rad,
       yaw_rad,
-      msg.cartesian_path 
+      msg.cartesian_path,
+      msg.speed_scaling
     );
   }
 
   std::shared_ptr<rclcpp::Node> node_;
   std::shared_ptr<MoveGroupInterface> arm_;
 
-  rclcpp::Subscription<FloatArray>::SharedPtr joint_cmd_sub_;
+  rclcpp::Subscription<JointCmd>::SharedPtr joint_cmd_sub_;
+  rclcpp::Subscription<FloatArray>::SharedPtr legacy_joint_cmd_sub_;
   rclcpp::Subscription<PoseCmd>::SharedPtr pose_cmd_sub_;
 };
 
@@ -146,7 +213,11 @@ int main(int argc, char **argv)
 
   RCLCPP_INFO(node->get_logger(), "Commander ready. Planning frame: %s, End effector: %s",
     commander.getPlanningFrame().c_str(), commander.getEndEffectorLink().c_str());
-  RCLCPP_INFO(node->get_logger(), "Listening on /joint_command and /pose_command");
+  RCLCPP_INFO(
+    node->get_logger(),
+    "Listening on /joint_command, /pose_command, and /joint_command_legacy; "
+    "speed_scaling range is [%.1f, %.1f]",
+    kMinSpeedScaling, kMaxSpeedScaling);
 
   rclcpp::spin(node);
   rclcpp::shutdown();

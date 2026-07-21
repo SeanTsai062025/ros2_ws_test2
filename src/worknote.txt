@@ -66,7 +66,7 @@ ros2 run my_robot_commander_cpp commander
 ----------------------------------------------------------
 ros2 topic pub -1 /open_gripper example_interfaces/msg/Bool "data: false"
 
-ros2 topic pub -1 /joint_command example_interfaces/msg/Float64MultiArray "{data: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]}"
+ros2 topic pub -1 /joint_command dexter_interfaces/msg/JointCommand "{positions: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5], speed_scaling: 0.5}"
 
 
 ros2 topic pub -1 /pose_command my_robot_interfaces/msg/PoseCommand "{x: 0.7, y: 0.0, z: 0.4, roll: 0.0, pitch: 0.0, yaw: 0.0, cartesian_path: false}"
@@ -89,9 +89,9 @@ ros2 run dexter_commander_cpp commander
 ----------------------------------------------------------
 ros2 topic pub -1 /open_gripper example_interfaces/msg/Bool "data: false"
 
-ros2 topic pub -1 /joint_command example_interfaces/msg/Float64MultiArray "{data: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]}"
+ros2 topic pub -1 /joint_command dexter_interfaces/msg/JointCommand "{positions: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5], speed_scaling: 0.5}"
 
-ros2 topic pub -1 /joint_command example_interfaces/msg/Float64MultiArray "{data: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}"
+ros2 topic pub -1 /joint_command dexter_interfaces/msg/JointCommand "{positions: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], speed_scaling: 0.5}"
 
 ros2 topic pub -1 /pose_command dexter_interfaces/msg/PoseCommand "{x: 0.01, y: 0.01, z: 0.01, roll: 0.0, pitch: 1.5, yaw: 0.0, cartesian_path: false}"
 
@@ -159,7 +159,7 @@ ros2 launch dexter_bringup dexter.launch.xml use_hardware:=true
 
 ros2 run dexter_commander_cpp commander
 
-ros2 topic pub -1 /joint_command example_interfaces/msg/Float64MultiArray "{data: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}"
+ros2 topic pub -1 /joint_command dexter_interfaces/msg/JointCommand "{positions: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], speed_scaling: 0.5}"
 
 # Optional: monitor real encoder positions
 ros2 topic echo /encoder_joint_states
@@ -188,7 +188,7 @@ ros2 launch dexter_bringup dexter.launch.xml use_hardware:=true
 
 ros2 run dexter_commander_cpp commander
 
-ros2 topic pub -1 /joint_command example_interfaces/msg/Float64MultiArray "{data: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}"
+ros2 topic pub -1 /joint_command dexter_interfaces/msg/JointCommand "{positions: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], speed_scaling: 0.5}"
 
 ros2 topic pub -1 /pose_command dexter_interfaces/msg/PoseCommand "{x: 0.0624, y: -0.0011, z: 0.31329, roll: 54.2, pitch: 88.2, yaw: 54.2, cartesian_path: false}"
 
@@ -221,3 +221,27 @@ ros2 topic pub -1 /pose_command dexter_interfaces/msg/PoseCommand "{x: 0.0624, y
 
 
 ros2 topic pub -1 /pose_command dexter_interfaces/msg/PoseCommand "{x: 0.0624, y: -0.0011, z: 0.31329, roll: 54.2, pitch: 100.2, yaw: 54.2, cartesian_path: true}"
+
+--------
+
+
+
+conda activate dexter_ros2 && cd ~/dexter_test_2/ros2_ws && source install/setup.bash
+
+ip link
+
+sudo ip link set can0 down
+
+sudo ip link set can0 txqueuelen 1000
+sudo ip link set can0 up type can bitrate 1000000
+
+ros2 launch dexter_bringup dexter.launch.xml use_hardware:=true
+
+ros2 run dexter_commander_cpp commander
+
+ros2 topic pub -1 /joint_command dexter_interfaces/msg/JointCommand \
+  "{positions: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], speed_scaling: 0.8}"
+  
+  
+ros2 topic pub -1 /pose_command dexter_interfaces/msg/PoseCommand \
+  "{x: 0.0624, y: -0.0011, z: 0.31329, roll: 54.2, pitch: 88.2, yaw: 54.2, cartesian_path: false, speed_scaling: 0.8}"

@@ -1,10 +1,6 @@
-float64 x
-float64 y
-float64 z
-float64 roll
-float64 pitch
-float64 yaw
-bool cartesian_path
+# Joint targets in this order: base, part1, part2, part3, part4, part5.
+float64[6] positions
+
 # Fraction of the configured maximum joint velocity and acceleration.
 # Valid command values are 0.2 through 1.0.
 float64 speed_scaling 0.5
