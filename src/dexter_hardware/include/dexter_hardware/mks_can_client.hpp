@@ -20,6 +20,16 @@ struct ReceiveCounters
   std::size_t f5_status{0};
   std::size_t unrelated{0};
   std::size_t bad_checksum{0};
+  std::size_t malformed_encoder{0};
+  std::size_t duplicate_encoder{0};
+  std::size_t post_deadline_drained{0};
+};
+
+struct EncoderSample
+{
+  std::uint32_t motor_id{};
+  std::int64_t ticks{};
+  std::chrono::steady_clock::time_point received_at;
 };
 
 class MksCanClient
@@ -33,6 +43,9 @@ public:
     std::string & error);
   std::optional<std::int64_t> read_encoder(
     std::uint32_t motor_id, std::chrono::microseconds timeout, std::string & error);
+  std::optional<std::vector<EncoderSample>> read_encoders(
+    const std::vector<std::uint32_t> & motor_ids,
+    std::chrono::microseconds batch_timeout, std::string & error);
   std::optional<std::uint32_t> read_parameter(
     std::uint32_t motor_id, std::uint8_t parameter,
     std::chrono::milliseconds timeout, std::string & error);

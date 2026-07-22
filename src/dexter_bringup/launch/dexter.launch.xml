@@ -11,7 +11,8 @@
        description="spawn JTC active; set false for passive encoder-only hardware checks" />
   <arg name="can_interface" default="can0" />
   <arg name="can_bitrate" default="1000000" />
-  <arg name="encoder_timeout_us" default="2000" />
+  <arg name="encoder_timeout_us" default="7000"
+       description="blocking deadline for one six-motor encoder batch before a bounded queued-frame drain" />
   <arg name="max_speed_field" default="3000" />
   <arg name="min_speed_field" default="10" />
   <arg name="fallback_speed_field" default="300" />
@@ -41,13 +42,14 @@
     <param from="$(find-pkg-share dexter_bringup)/config/ros2_controllers.yaml" />
   </node>
 
-  <!-- In both modes joint_state_broadcaster publishes the state exported by
-       the selected SystemInterface. In hardware mode that state is 0x31 data. -->
+  <!-- One spawner processes controllers in argument order. This guarantees
+       physical joint states are publishing before JTC claims command interfaces. -->
   <node pkg="controller_manager" exec="spawner"
-        args="joint_state_broadcaster --controller-manager-timeout 30" />
-  <node pkg="controller_manager" exec="spawner"
-        args="arm_controller --controller-manager-timeout 30"
+        args="joint_state_broadcaster arm_controller --controller-manager-timeout 30"
         if="$(var activate_arm_controller)" />
+  <node pkg="controller_manager" exec="spawner"
+        args="joint_state_broadcaster --controller-manager-timeout 30"
+        unless="$(var activate_arm_controller)" />
 
   <!-- ════════════════════════════════════════════════════════════════════
        MoveIt move_group

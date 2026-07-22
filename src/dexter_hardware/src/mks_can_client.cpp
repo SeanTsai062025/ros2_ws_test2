@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <iterator>
 #include <thread>
 #include <utility>
 
@@ -137,39 +138,157 @@ std::optional<std::int64_t> MksCanClient::read_encoder(
   const std::uint32_t motor_id, const std::chrono::microseconds timeout,
   std::string & error)
 {
+  const auto samples = read_encoders({motor_id}, timeout, error);
+  if (!samples)
+  {
+    return std::nullopt;
+  }
+  return samples->front().ticks;
+}
+
+std::optional<std::vector<EncoderSample>> MksCanClient::read_encoders(
+  const std::vector<std::uint32_t> & motor_ids,
+  const std::chrono::microseconds batch_timeout, std::string & error)
+{
   if (!synchronized_)
   {
     error = "CAN encoder transactions are not synchronized";
     return std::nullopt;
   }
+  if (motor_ids.empty() || batch_timeout.count() <= 0)
+  {
+    error = "encoder batch requires at least one motor and a positive timeout";
+    return std::nullopt;
+  }
+  for (auto iterator = motor_ids.begin(); iterator != motor_ids.end(); ++iterator)
+  {
+    if (std::find(motor_ids.begin(), iterator, *iterator) != iterator)
+    {
+      error = "encoder batch contains duplicate motor ID " + std::to_string(*iterator);
+      return std::nullopt;
+    }
+  }
 
-  // 0x31 has no request sequence number. Discard everything already queued before
-  // transmitting, and permit only one outstanding request. If it times out, latch
-  // unsynchronized and require a lifecycle reconfigure/quiet interval before retrying.
+  // 0x31 has no request sequence number. Discard everything queued before this batch,
+  // allow only one request per motor, and never start another batch after a timeout.
+  // Sending all requests before receiving avoids six serialized USB round trips.
+  const auto deadline = std::chrono::steady_clock::now() + batch_timeout;
   if (!drain_pending(error))
   {
     synchronized_ = false;
     return std::nullopt;
   }
-  if (!transport_->send(make_encoder_request(motor_id), error))
+  for (const auto motor_id : motor_ids)
+  {
+    if (std::chrono::steady_clock::now() >= deadline)
+    {
+      synchronized_ = false;
+      error = "encoder batch deadline expired while sending requests";
+      return std::nullopt;
+    }
+    if (!transport_->send(make_encoder_request(motor_id), error))
+    {
+      synchronized_ = false;
+      error = "failed to request encoder from motor " + std::to_string(motor_id) + ": " + error;
+      return std::nullopt;
+    }
+  }
+
+  std::vector<std::optional<EncoderSample>> pending_samples(motor_ids.size());
+  std::size_t received_count = 0U;
+  // A userspace scheduling pause can end after the deadline even though every CAN
+  // reply reached the kernel socket queue on time. Once the blocking deadline
+  // expires, perform a bounded non-blocking drain before declaring a motor missing.
+  // The pre-batch drain and single outstanding 0x31 request per motor ensure that
+  // matching frames belong to this transaction. The bound prevents unrelated bus
+  // traffic from extending a control cycle indefinitely.
+  constexpr std::size_t kMaxPostDeadlineFrames = 64U;
+  std::size_t post_deadline_frames = 0U;
+  while (received_count < motor_ids.size())
+  {
+    const auto now = std::chrono::steady_clock::now();
+    const bool deadline_expired = now >= deadline;
+    if (deadline_expired && post_deadline_frames >= kMaxPostDeadlineFrames)
+    {
+      break;
+    }
+    const auto remaining = deadline_expired ? std::chrono::microseconds{0} :
+      std::chrono::duration_cast<std::chrono::microseconds>(deadline - now);
+    std::string receive_error;
+    auto frame = transport_->receive(remaining, receive_error);
+    if (!receive_error.empty())
+    {
+      synchronized_ = false;
+      error = receive_error;
+      return std::nullopt;
+    }
+    if (!frame)
+    {
+      if (deadline_expired)
+      {
+        break;
+      }
+      continue;
+    }
+    if (deadline_expired)
+    {
+      ++post_deadline_frames;
+      ++counters_.post_deadline_drained;
+    }
+
+    const auto motor = std::find(motor_ids.begin(), motor_ids.end(), frame->id);
+    const bool expected_encoder =
+      motor != motor_ids.end() && !frame->data.empty() &&
+      frame->data.front() == kReadEncoderCommand;
+    if (!expected_encoder)
+    {
+      classify_ignored(*frame);
+      continue;
+    }
+    if (!has_valid_checksum(*frame))
+    {
+      ++counters_.bad_checksum;
+      continue;
+    }
+
+    const auto index = static_cast<std::size_t>(std::distance(motor_ids.begin(), motor));
+    const auto ticks = parse_encoder_response(*frame, *motor);
+    if (!ticks)
+    {
+      ++counters_.malformed_encoder;
+      continue;
+    }
+    if (pending_samples[index])
+    {
+      ++counters_.duplicate_encoder;
+      continue;
+    }
+    pending_samples[index] = EncoderSample{*motor, *ticks, std::chrono::steady_clock::now()};
+    ++received_count;
+  }
+
+  if (received_count != motor_ids.size())
   {
     synchronized_ = false;
+    error = "timed out waiting for encoder batch; missing CAN IDs:";
+    for (std::size_t index = 0; index < motor_ids.size(); ++index)
+    {
+      if (!pending_samples[index])
+      {
+        error += " " + std::to_string(motor_ids[index]);
+      }
+    }
     return std::nullopt;
   }
 
-  auto frame = wait_for_response(motor_id, kReadEncoderCommand, timeout, error);
-  if (!frame)
+  std::vector<EncoderSample> samples;
+  samples.reserve(motor_ids.size());
+  for (auto & sample : pending_samples)
   {
-    synchronized_ = false;
-    return std::nullopt;
+    samples.push_back(std::move(*sample));
   }
-  auto ticks = parse_encoder_response(*frame, motor_id);
-  if (!ticks)
-  {
-    synchronized_ = false;
-    error = "malformed encoder response from motor " + std::to_string(motor_id);
-  }
-  return ticks;
+  error.clear();
+  return samples;
 }
 
 std::optional<std::uint32_t> MksCanClient::read_parameter(

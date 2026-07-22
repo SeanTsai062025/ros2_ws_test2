@@ -199,7 +199,8 @@ bool DexterSystem::parse_parameters()
     can_interface_ = found->second;
   }
 
-  std::uint64_t encoder_timeout_us = static_cast<std::uint64_t>(encoder_timeout_.count());
+  std::uint64_t encoder_timeout_us =
+    static_cast<std::uint64_t>(encoder_batch_timeout_.count());
   std::uint64_t quiet_us = static_cast<std::uint64_t>(startup_quiet_period_.count());
   std::uint64_t max_wait_us = static_cast<std::uint64_t>(startup_max_wait_.count());
   bool ok = true;
@@ -254,7 +255,7 @@ bool DexterSystem::parse_parameters()
     RCLCPP_ERROR(get_logger(), "Inconsistent Dexter hardware speed/timing limits");
     ok = false;
   }
-  encoder_timeout_ = std::chrono::microseconds{encoder_timeout_us};
+  encoder_batch_timeout_ = std::chrono::microseconds{encoder_timeout_us};
   startup_quiet_period_ = std::chrono::microseconds{quiet_us};
   startup_max_wait_ = std::chrono::microseconds{max_wait_us};
   return ok;
@@ -291,6 +292,9 @@ bool DexterSystem::cache_interfaces()
 CallbackReturn DexterSystem::on_configure(const rclcpp_lifecycle::State &)
 {
   close_can();
+  cycle_guard_.reset();
+  last_encoder_batch_ms_ = 0.0;
+  max_encoder_batch_ms_ = 0.0;
   write_enabled_ = false;
   stop_sent_ = false;
   if (!cache_interfaces())
@@ -404,7 +408,7 @@ CallbackReturn DexterSystem::on_activate(const rclcpp_lifecycle::State &)
   }
   write_enabled_ = true;
   stop_sent_ = false;
-  write_generation_ = read_generation_;
+  cycle_guard_.require_post_switch_read();
   publish_diagnostics(
     diagnostic_msgs::msg::DiagnosticStatus::OK,
     "active; commands seeded from measured encoder positions", true);
@@ -442,26 +446,36 @@ bool DexterSystem::read_all_encoders(const bool initializing)
     return false;
   }
 
+  std::vector<std::uint32_t> motor_ids;
+  motor_ids.reserve(calibrations_.size());
+  for (const auto & calibration : calibrations_)
+  {
+    motor_ids.push_back(calibration.can_id);
+  }
+
+  std::string error;
+  const auto batch_start = std::chrono::steady_clock::now();
+  const auto samples = can_client_->read_encoders(motor_ids, encoder_batch_timeout_, error);
+  last_encoder_batch_ms_ = std::chrono::duration<double, std::milli>(
+    std::chrono::steady_clock::now() - batch_start).count();
+  max_encoder_batch_ms_ = std::max(max_encoder_batch_ms_, last_encoder_batch_ms_);
+  if (!samples)
+  {
+    ++failed_read_cycles_;
+    RCLCPP_ERROR(get_logger(), "Fresh six-axis encoder batch failed: %s", error.c_str());
+    publish_diagnostics(
+      diagnostic_msgs::msg::DiagnosticStatus::ERROR,
+      "fresh six-axis encoder batch failed: " + error, true);
+    return false;
+  }
+
   std::vector<double> candidate_positions(calibrations_.size());
   std::vector<std::chrono::steady_clock::time_point> receive_times(calibrations_.size());
   for (std::size_t index = 0; index < calibrations_.size(); ++index)
   {
-    std::string error;
-    const auto ticks = can_client_->read_encoder(
-      calibrations_[index].can_id, encoder_timeout_, error);
-    receive_times[index] = std::chrono::steady_clock::now();
-    if (!ticks)
-    {
-      ++failed_read_cycles_;
-      RCLCPP_ERROR(
-        get_logger(), "Fresh encoder read failed for %s (CAN ID %u): %s",
-        calibrations_[index].joint_name.c_str(), calibrations_[index].can_id, error.c_str());
-      publish_diagnostics(
-        diagnostic_msgs::msg::DiagnosticStatus::ERROR,
-        "fresh encoder transaction failed for " + calibrations_[index].joint_name, true);
-      return false;
-    }
-    candidate_positions[index] = ticks_to_radians(*ticks, calibrations_[index]);
+    const auto & sample = (*samples)[index];
+    receive_times[index] = sample.received_at;
+    candidate_positions[index] = ticks_to_radians(sample.ticks, calibrations_[index]);
   }
 
   for (std::size_t index = 0; index < calibrations_.size(); ++index)
@@ -498,7 +512,7 @@ bool DexterSystem::read_all_encoders(const bool initializing)
     }
   }
   ++successful_read_cycles_;
-  ++read_generation_;
+  cycle_guard_.record_read();
   publish_diagnostics(
     diagnostic_msgs::msg::DiagnosticStatus::OK, "all encoder feedback fresh", false);
   return true;
@@ -521,7 +535,21 @@ ReturnType DexterSystem::write(const rclcpp::Time &, const rclcpp::Duration &)
   {
     return ReturnType::OK;
   }
-  if (!can_client_ || !can_client_->synchronized() || read_generation_ <= write_generation_)
+  if (!can_client_ || !can_client_->synchronized())
+  {
+    safe_stop("write attempted while CAN transaction stream was unsynchronized", true);
+    return ReturnType::ERROR;
+  }
+
+  const auto write_decision = cycle_guard_.evaluate_write();
+  if (write_decision == WriteCycleDecision::WAITING_FOR_READ)
+  {
+    // Controller manager may call write() in the same update cycle in which it
+    // activates JTC. Suppress that expected call so no target is sent until a
+    // complete encoder batch has arrived after the mode switch.
+    return ReturnType::OK;
+  }
+  if (write_decision == WriteCycleDecision::STALE)
   {
     safe_stop("write attempted without a fresh encoder cycle", true);
     return ReturnType::ERROR;
@@ -590,7 +618,7 @@ ReturnType DexterSystem::write(const rclcpp::Time &, const rclcpp::Duration &)
     last_sent_ticks_[index] = target.ticks;
     last_sent_speeds_[index] = speed;
   }
-  write_generation_ = read_generation_;
+  cycle_guard_.record_write();
   return ReturnType::OK;
 }
 
@@ -698,7 +726,7 @@ ReturnType DexterSystem::perform_command_mode_switch(
     }
     write_enabled_ = true;
     stop_sent_ = false;
-    write_generation_ = read_generation_;
+    cycle_guard_.require_post_switch_read();
   }
   return ReturnType::OK;
 }
@@ -768,12 +796,29 @@ void DexterSystem::publish_diagnostics(
     "failed_read_cycles", std::to_string(failed_read_cycles_)));
   status.values.push_back(diagnostic_value(
     "writes_enabled", write_enabled_ ? "true" : "false"));
+  status.values.push_back(diagnostic_value(
+    "awaiting_post_switch_read",
+    cycle_guard_.awaiting_post_switch_read() ? "true" : "false"));
+  status.values.push_back(diagnostic_value(
+    "read_generation", std::to_string(cycle_guard_.read_generation())));
+  status.values.push_back(diagnostic_value(
+    "write_generation", std::to_string(cycle_guard_.write_generation())));
+  status.values.push_back(diagnostic_value(
+    "last_encoder_batch_ms", std::to_string(last_encoder_batch_ms_)));
+  status.values.push_back(diagnostic_value(
+    "max_encoder_batch_ms", std::to_string(max_encoder_batch_ms_)));
   if (can_client_)
   {
     const auto & counters = can_client_->counters();
     status.values.push_back(diagnostic_value("rx_f5_status_ignored", std::to_string(counters.f5_status)));
     status.values.push_back(diagnostic_value("rx_unrelated_ignored", std::to_string(counters.unrelated)));
     status.values.push_back(diagnostic_value("rx_bad_checksum", std::to_string(counters.bad_checksum)));
+    status.values.push_back(diagnostic_value(
+      "rx_malformed_encoder", std::to_string(counters.malformed_encoder)));
+    status.values.push_back(diagnostic_value(
+      "rx_duplicate_encoder", std::to_string(counters.duplicate_encoder)));
+    status.values.push_back(diagnostic_value(
+      "rx_post_deadline_drained", std::to_string(counters.post_deadline_drained)));
   }
   for (std::size_t index = 0; index < calibrations_.size(); ++index)
   {

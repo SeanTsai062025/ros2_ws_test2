@@ -15,6 +15,7 @@
 #include "rclcpp/publisher.hpp"
 #include "rclcpp_lifecycle/state.hpp"
 
+#include "dexter_hardware/control_cycle_guard.hpp"
 #include "dexter_hardware/mks_can_client.hpp"
 #include "dexter_hardware/mks_protocol.hpp"
 
@@ -67,7 +68,7 @@ private:
 
   std::string can_interface_{"can0"};
   std::uint32_t can_bitrate_{1000000U};
-  std::chrono::microseconds encoder_timeout_{2000};
+  std::chrono::microseconds encoder_batch_timeout_{7000};
   std::chrono::microseconds startup_quiet_period_{20000};
   std::chrono::microseconds startup_max_wait_{250000};
   std::uint16_t max_speed_field_{3000U};
@@ -104,8 +105,9 @@ private:
   std::chrono::steady_clock::time_point last_diagnostic_publish_{};
   std::size_t successful_read_cycles_{0U};
   std::size_t failed_read_cycles_{0U};
-  std::uint64_t read_generation_{0U};
-  std::uint64_t write_generation_{0U};
+  double last_encoder_batch_ms_{0.0};
+  double max_encoder_batch_ms_{0.0};
+  ControlCycleGuard cycle_guard_;
   bool write_enabled_{false};
   bool stop_sent_{false};
 };

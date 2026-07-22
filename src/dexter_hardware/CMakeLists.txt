@@ -92,6 +92,9 @@ if(BUILD_TESTING)
   target_link_libraries(test_mks_can_client dexter_can)
   target_include_directories(test_mks_can_client PRIVATE include)
 
+  ament_add_gtest(test_control_cycle_guard test/test_control_cycle_guard.cpp)
+  target_include_directories(test_control_cycle_guard PRIVATE include)
+
   ament_add_gtest(test_plugin_loading test/test_plugin_loading.cpp)
   ament_target_dependencies(test_plugin_loading hardware_interface pluginlib)
 

@@ -4,8 +4,10 @@
 
 At 100 Hz, controller manager executes this order:
 
-1. `DexterSystem::read()` requests command 0x31 from every motor and commits a
-   state update only after all six fresh, checksum-valid responses arrive.
+1. `DexterSystem::read()` sends one 0x31 request to each motor as a batch, then
+   commits a state update only after all six fresh, checksum-valid responses.
+   It waits for one overall deadline and then performs a bounded non-blocking
+   drain so frames already queued by SocketCAN survive a userspace scheduling pause.
 2. JointTrajectoryController samples the trajectory and compares it with those
    physical position and filtered velocity states.
 3. `DexterSystem::write()` forwards JTC's desired position as an absolute 0xF5
@@ -23,14 +25,19 @@ bridge and its separate joint-state publisher/remap are not launched.
 
 ## CAN transaction and freshness rules
 
+All six 0x31 requests are queued before the receive phase. This removes six
+serialized USB request/response round trips while retaining one outstanding
+request per motor. Responses may arrive in any order. At the batch deadline, the
+client performs a bounded non-blocking queue drain before reporting missing IDs.
 The receive path matches motor ID, command byte, exact response length, and MKS
 checksum. Interleaved F5 start/complete statuses, replies from other IDs, bad
-checksums, duplicates, and unrelated frames are classified and ignored.
+checksums, duplicates, malformed responses, and unrelated frames are classified
+and ignored.
 
 MKS 0x31 has no request sequence number. To avoid accepting a late response as
-a later measurement, the driver permits only one outstanding 0x31 request,
-drains frames queued before each request, and latches the stream unsynchronized
-after any timeout. It does not issue another encoder request until the hardware
+a later measurement, the driver permits only one outstanding request per motor,
+drains frames queued before each batch, and latches the stream unsynchronized
+after any timeout. It does not issue another encoder batch until the hardware
 lifecycle is reconfigured and the bus has passed a configurable quiet interval.
 
 An incomplete six-joint read is never committed. The exported state is marked
@@ -53,16 +60,18 @@ flooding.
 - Position commands are seeded from measured joint positions and velocity
   commands from zero before writes are enabled.
 - Command interfaces are seeded again when a motion controller claims them.
-- The first write therefore does not issue a zero/home target, and unchanged
-  measured targets do not generate F5 traffic.
+- A write in the controller-activation cycle is deliberately deferred. A new,
+  complete encoder batch must arrive after the mode switch before F5 writes are
+  permitted. The first target therefore cannot be zero/home or based on stale
+  pre-switch feedback, and unchanged measured targets do not generate F5 traffic.
 - A configurable per-cycle position step limit rejects discontinuous commands.
 - Encoder loss, unsynchronized transactions, non-finite commands, command-step
   violations, 24-bit target overflow, and CAN transmit errors issue F6 zero-speed
   stops and return a hardware error.
 - Deactivate, error, cleanup, shutdown, and destruction explicitly stop all six
   motors. Cleanup and shutdown then close the SocketCAN descriptor.
-- `/diagnostics` reports read counts, ignored frame categories, write enable
-  state, and per-joint encoder age.
+- `/diagnostics` reports read counts, ignored frame categories, batch latency,
+  write-gate state, and per-joint encoder age.
 
 The plugin requires all six joints. Partial fake state is deliberately not
 supported in hardware mode because it could allow JTC to evaluate success from
@@ -94,7 +103,9 @@ path and goal tolerances now expose excessive lag instead of hiding it.
 
 Hardware parameters are passed through the control xacro and bringup launch:
 
-- `encoder_timeout_us` (default 2000)
+- `encoder_timeout_us` (default 7000): blocking deadline for the complete
+  six-motor encoder batch, leaving 3 ms of a 100 Hz cycle for update and write;
+  frames already queued by SocketCAN receive one bounded non-blocking drain.
 - `max_speed_field` (3000), `min_speed_field` (10), and
   `fallback_speed_field` (300)
 - `acceleration_field` (0)
@@ -104,6 +115,23 @@ Hardware parameters are passed through the control xacro and bringup launch:
 Part 5 retains separate minimum/fallback speed fields of 1 and acceleration 0.
 JTC tracking tolerances and its finite 2 second goal-time allowance are in
 `dexter_bringup/config/ros2_controllers.yaml`.
+
+For dependable 100 Hz operation, controller manager must be allowed to use its
+requested FIFO real-time scheduling priority. If it logs `Operation not
+permitted`, install the supplied limits file and add the ROS user to its group:
+
+```bash
+sudo groupadd --force realtime
+sudo usermod -aG realtime "$USER"
+sudo install -o root -g root -m 0644 \
+  src/dexter_bringup/config/99-dexter-realtime.conf \
+  /etc/security/limits.d/99-dexter-realtime.conf
+```
+
+Log out completely and back in (or reboot), then verify `ulimit -r` reports 99,
+`ulimit -l` reports unlimited, and controller manager no longer emits the FIFO
+warning. Consider a PREEMPT_RT kernel or CPU isolation only if measured overruns
+remain after batching and FIFO scheduling are active.
 
 ## Software-only verification
 
