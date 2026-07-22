@@ -17,9 +17,9 @@ MoveIt → Commander → JTC (arm_controller, mock hardware @ 100 Hz)
 
 Part 5 is a direct 100 Hz pass-through: its target is exactly the JTC reference
 position with no look-ahead or blending, and its MKS acceleration field is zero
-(no motor-side ramp). CAN ID 6 is configured for SR_CLOSE at the Servo42D's
-documented 1600 mA default current and 128 subdivisions. SR_CLOSE avoids the
-large low-speed hunting measured with the self-adapting SR_vFOC loop. At 128
+(no motor-side ramp). CAN ID 6 is configured for SR_CLOSE at 800 mA working
+current and 128 subdivisions. SR_CLOSE avoids the large low-speed hunting
+measured with the self-adapting SR_vFOC loop. At 128
 subdivisions one speed-field unit is nominally 0.125 RPM instead of 1 RPM, so
 the Part 5 speed field is scaled by 8 to preserve the requested physical RPM.
 
@@ -108,14 +108,16 @@ F5_FALLBACK_SPEED = 300   # RPM — moderate speed for hold / re-target
 # Part 5 is direct drive, unlike the other 30:1 axes. Hardware capture showed
 # that SR_vFOC's self-adapting current loop hunted badly at this axis's low
 # direct-drive speeds, even with a smooth 100 Hz F6 command. SR_CLOSE at the
-# Servo42D's documented 1600 mA default eliminated the reversals and pulses.
+# Servo42D's documented 1600 mA default eliminated the reversals and pulses in
+# the original hardware test. The working current is now reduced to 800 mA to
+# lower heat while retaining the SR_CLOSE control mode.
 # At the motor's previous 16-subdivision setting, the integer speed field had
 # 1 RPM resolution. The MKS manual specifies 1/8 physical speed at 128
 # subdivisions, so multiplying desired RPM by 8 gives 0.125 RPM command
 # resolution without changing the requested physical speed. Acceleration 0
 # disables the motor-side ramp.
 PART5_WORK_MODE = 4       # SR_CLOSE: serial interface, encoder closed loop
-PART5_WORKING_CURRENT_MA = 1600
+PART5_WORKING_CURRENT_MA = 800
 PART5_SUBDIVISIONS = 128
 PART5_SPEED_FIELD_SCALE = 8.0
 PART5_MIN_SPEED = 1
