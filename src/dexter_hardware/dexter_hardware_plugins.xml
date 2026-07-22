@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<library path="dexter_system">
+  <class
+    name="dexter_hardware/DexterSystem"
+    type="dexter_hardware::DexterSystem"
+    base_class_type="hardware_interface::SystemInterface">
+    <description>
+      Six-axis Dexter SocketCAN hardware interface using fresh MKS 0x31 encoder state and
+      change-only 0xF5 absolute position commands.
+    </description>
+  </class>
+</library>

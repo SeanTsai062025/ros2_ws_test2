@@ -1,6 +1,16 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="dexter_simplify">
     <xacro:arg name="initial_positions_file" default="initial_positions.yaml" />
+    <xacro:arg name="use_hardware" default="false" />
+    <xacro:arg name="can_interface" default="can0" />
+    <xacro:arg name="can_bitrate" default="1000000" />
+    <xacro:arg name="encoder_timeout_us" default="2000" />
+    <xacro:arg name="max_speed_field" default="3000" />
+    <xacro:arg name="min_speed_field" default="10" />
+    <xacro:arg name="fallback_speed_field" default="300" />
+    <xacro:arg name="acceleration_field" default="0" />
+    <xacro:arg name="velocity_filter_alpha" default="0.25" />
+    <xacro:arg name="max_command_step_rad" default="0.05" />
 
     <!-- Import the current Dexter model and its collision geometry. -->
     <xacro:include filename="$(find dexter_description)/fix_with_limit/robot.urdf" />
@@ -9,6 +19,18 @@
     <xacro:include filename="dexter_simplify.ros2_control.xacro" />
 
 
-    <xacro:dexter_simplify_ros2_control name="FakeSystem" initial_positions_file="$(arg initial_positions_file)"/>
+    <xacro:dexter_simplify_ros2_control
+        name="DexterSystem"
+        initial_positions_file="$(arg initial_positions_file)"
+        use_hardware="$(arg use_hardware)"
+        can_interface="$(arg can_interface)"
+        can_bitrate="$(arg can_bitrate)"
+        encoder_timeout_us="$(arg encoder_timeout_us)"
+        max_speed_field="$(arg max_speed_field)"
+        min_speed_field="$(arg min_speed_field)"
+        fallback_speed_field="$(arg fallback_speed_field)"
+        acceleration_field="$(arg acceleration_field)"
+        velocity_filter_alpha="$(arg velocity_filter_alpha)"
+        max_command_step_rad="$(arg max_command_step_rad)"/>
 
 </robot>

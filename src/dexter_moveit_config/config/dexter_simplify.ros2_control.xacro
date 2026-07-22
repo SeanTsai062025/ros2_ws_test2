@@ -1,12 +1,37 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-    <xacro:macro name="dexter_simplify_ros2_control" params="name initial_positions_file">
+    <xacro:macro name="dexter_simplify_ros2_control" params="
+        name initial_positions_file use_hardware can_interface can_bitrate encoder_timeout_us
+        max_speed_field min_speed_field fallback_speed_field acceleration_field
+        velocity_filter_alpha max_command_step_rad">
         <xacro:property name="initial_positions" value="${xacro.load_yaml(initial_positions_file)['initial_positions']}"/>
 
         <ros2_control name="${name}" type="system">
             <hardware>
-                <!-- By default, set up controllers for simulation. This won't work on real hardware -->
-                <plugin>mock_components/GenericSystem</plugin>
+                <xacro:if value="${use_hardware}">
+                    <plugin>dexter_hardware/DexterSystem</plugin>
+                    <param name="can_interface">${can_interface}</param>
+                    <param name="can_bitrate">${can_bitrate}</param>
+                    <param name="encoder_timeout_us">${encoder_timeout_us}</param>
+                    <param name="startup_quiet_period_us">20000</param>
+                    <param name="startup_max_wait_us">250000</param>
+                    <param name="max_speed_field">${max_speed_field}</param>
+                    <param name="min_speed_field">${min_speed_field}</param>
+                    <param name="fallback_speed_field">${fallback_speed_field}</param>
+                    <param name="acceleration_field">${acceleration_field}</param>
+                    <param name="part5_min_speed_field">1</param>
+                    <param name="part5_fallback_speed_field">1</param>
+                    <param name="part5_acceleration_field">0</param>
+                    <param name="velocity_filter_alpha">${velocity_filter_alpha}</param>
+                    <param name="max_command_step_rad">${max_command_step_rad}</param>
+                    <param name="configure_part5_driver">true</param>
+                    <param name="part5_work_mode">4</param>
+                    <param name="part5_working_current_ma">800</param>
+                    <param name="part5_subdivisions">128</param>
+                </xacro:if>
+                <xacro:unless value="${use_hardware}">
+                    <plugin>mock_components/GenericSystem</plugin>
+                </xacro:unless>
             </hardware>
             <joint name="base">
                 <command_interface name="position"/>

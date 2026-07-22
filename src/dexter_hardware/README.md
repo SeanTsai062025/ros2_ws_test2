@@ -1,5 +1,16 @@
 # Dexter Hardware Control - ROS 2 Package
 
+The production arm path is the C++ `dexter_hardware/DexterSystem` ros2_control
+plugin. It reads physical 0x31 encoder feedback before JTC updates and writes
+change-only 0xF5 targets after JTC updates. See
+[REAL_HARDWARE_ROS2_CONTROL.md](REAL_HARDWARE_ROS2_CONTROL.md) for architecture,
+safety behavior, parameters, and the staged validation procedure.
+
+The Python bridge and direct motor-command node below are retained as legacy
+utilities. They are not launched by `dexter_bringup` and must not be run beside
+the real ros2_control plugin because only one process may own the CAN command
+path.
+
 This package provides a ROS 2 node for controlling MKS Servo stepper motors (Servo42D/Servo57D) via CAN bus on a Raspberry Pi 5 using a USB-CAN adapter.
 
 ## Components
@@ -261,4 +272,3 @@ You can test the node and verify CAN frames are being sent without actual hardwa
 - MKS Servo documentation: Check the MKS SERVO42&57D_CAN User Manual
 - mks-servo-can library: `/home/sean/dexter_test_2/ros2_ws/src/dexter_hardware/mks-servo-can/`
 - python-can documentation: https://python-can.readthedocs.io/
-

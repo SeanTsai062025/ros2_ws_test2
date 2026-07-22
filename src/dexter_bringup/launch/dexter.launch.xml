@@ -4,43 +4,50 @@
        Arguments
        ════════════════════════════════════════════════════════════════════ -->
   <arg name="use_hardware" default="false"
-       description="true = launch hardware bridge with real CAN; false = sim only" />
-  <arg name="use_sim" default="false"
-       description="hardware bridge sim mode (no CAN, fake positions)" />
+       description="true = real ros2_control SocketCAN plugin; false = GenericSystem simulation" />
   <arg name="use_rviz" default="true"
        description="launch RViz; disable for headless hardware tests" />
+  <arg name="activate_arm_controller" default="true"
+       description="spawn JTC active; set false for passive encoder-only hardware checks" />
   <arg name="can_interface" default="can0" />
   <arg name="can_bitrate" default="1000000" />
-  <!-- Restrict this list during single-axis hardware tests. -->
-  <arg name="connected_joints"
-       default="['base', 'part1', 'part2', 'part3', 'part4', 'part5']" />
+  <arg name="encoder_timeout_us" default="2000" />
+  <arg name="max_speed_field" default="3000" />
+  <arg name="min_speed_field" default="10" />
+  <arg name="fallback_speed_field" default="300" />
+  <arg name="acceleration_field" default="0" />
+  <arg name="velocity_filter_alpha" default="0.25" />
+  <arg name="max_command_step_rad" default="0.05" />
 
   <let name="urdf_path"
        value="$(find-pkg-share dexter_moveit_config)/config/dexter_simplify.urdf.xacro"/>
   <let name="rviz_config_path"
     value="$(find-pkg-share dexter_bringup)/config/dexter_moveit.rviz"/>
+  <let name="robot_description"
+       value="$(command 'xacro $(var urdf_path) use_hardware:=$(var use_hardware) can_interface:=$(var can_interface) can_bitrate:=$(var can_bitrate) encoder_timeout_us:=$(var encoder_timeout_us) max_speed_field:=$(var max_speed_field) min_speed_field:=$(var min_speed_field) fallback_speed_field:=$(var fallback_speed_field) acceleration_field:=$(var acceleration_field) velocity_filter_alpha:=$(var velocity_filter_alpha) max_command_step_rad:=$(var max_command_step_rad)')" />
 
   <!-- ════════════════════════════════════════════════════════════════════
-       Core ros2_control stack (mock hardware for JTC + RViz)
+       Core ros2_control stack. The xacro selects exactly one SystemInterface:
+       GenericSystem in simulation or DexterSystem on real hardware.
        ════════════════════════════════════════════════════════════════════ -->
   <node pkg="robot_state_publisher" exec="robot_state_publisher">
     <param name="robot_description"
-           value="$(command 'xacro $(var urdf_path)')" />
+           value="$(var robot_description)" />
   </node>
 
   <node pkg="controller_manager" exec="ros2_control_node">
     <param name="robot_description"
-           value="$(command 'xacro $(var urdf_path)')" />
+           value="$(var robot_description)" />
     <param from="$(find-pkg-share dexter_bringup)/config/ros2_controllers.yaml" />
   </node>
 
-  <!-- In hardware mode, the hardware bridge is the sole /joint_states
-       publisher so RViz and MoveIt see physical encoder feedback. -->
+  <!-- In both modes joint_state_broadcaster publishes the state exported by
+       the selected SystemInterface. In hardware mode that state is 0x31 data. -->
   <node pkg="controller_manager" exec="spawner"
-        args="joint_state_broadcaster --controller-manager-timeout 30"
-        unless="$(var use_hardware)" />
+        args="joint_state_broadcaster --controller-manager-timeout 30" />
   <node pkg="controller_manager" exec="spawner"
-        args="arm_controller --controller-manager-timeout 30" />
+        args="arm_controller --controller-manager-timeout 30"
+        if="$(var activate_arm_controller)" />
 
   <!-- ════════════════════════════════════════════════════════════════════
        MoveIt move_group
@@ -56,22 +63,5 @@
     <arg name="rviz_config"
          value="$(var rviz_config_path)" />
   </include>
-
-  <!-- ════════════════════════════════════════════════════════════════════
-       Hardware Bridge v5.0 — 0xF5 position streaming at 100 Hz
-       Launched only when use_hardware:=true
-       Subscribes to /arm_controller/controller_state from JTC
-       Remaps real /encoder_joint_states feedback to /joint_states
-       ════════════════════════════════════════════════════════════════════ -->
-  <group if="$(var use_hardware)">
-    <node pkg="dexter_hardware" exec="dexter_hardware_bridge.py"
-          name="dexter_hardware_bridge" output="screen">
-      <param name="can_interface" value="$(var can_interface)" />
-      <param name="can_bitrate"   value="$(var can_bitrate)" />
-      <param name="use_sim"       value="$(var use_sim)" />
-      <param name="connected_joints" value="$(var connected_joints)" />
-      <remap from="/encoder_joint_states" to="/joint_states" />
-    </node>
-  </group>
 
 </launch>

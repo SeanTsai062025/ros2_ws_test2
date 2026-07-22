@@ -1,7 +1,7 @@
 # This config file is used by ros2_control
 controller_manager:
   ros__parameters:
-    update_rate: 100  # Hz — single rate, matches hardware bridge exactly
+    update_rate: 100  # Hz — JTC sampling and real hardware read/write cycle
 
     arm_controller:
       type: joint_trajectory_controller/JointTrajectoryController
@@ -19,18 +19,18 @@ arm_controller:
       - part4
       - part5
 
-    # The JTC streams position commands to mock hardware.
-    # The hardware bridge reads reference.positions from
-    # /arm_controller/controller_state at 100 Hz and sends
-    # 0xF5 absolute-position CAN commands at the same rate.
+    # JTC forwards both sampled values directly. The hardware plugin uses desired
+    # position as the F5 target and desired velocity to choose the F5 speed field.
+    # This command-interface combination does not enable JTC's PID adapter.
     command_interfaces:
       - position
+      - velocity
     state_interfaces:
       - position
       - velocity
 
-    # Allow the trajectory to end with non-zero velocity (for smooth blending)
-    allow_nonzero_velocity_at_trajectory_end: true
+    open_loop_control: false
+    allow_nonzero_velocity_at_trajectory_end: false
 
     # Publish controller state at 100 Hz — matches bridge loop exactly
     state_publish_rate: 100.0
@@ -38,9 +38,12 @@ arm_controller:
     # Action monitor rate — how often the JTC checks if the goal is reached
     action_monitor_rate: 20.0
 
-    # Don't abort the FollowJointTrajectory action if the final position
-    # isn't reached within a tight time window.  0.0 = no time limit.
-    # The JTC will still track the trajectory; this only controls the
-    # "did we arrive?" check at the end.
     constraints:
-      goal_time: 0.0
+      goal_time: 2.0
+      stopped_velocity_tolerance: 0.03
+      base:  {trajectory: 0.10, goal: 0.02}
+      part1: {trajectory: 0.10, goal: 0.02}
+      part2: {trajectory: 0.10, goal: 0.02}
+      part3: {trajectory: 0.10, goal: 0.02}
+      part4: {trajectory: 0.10, goal: 0.02}
+      part5: {trajectory: 0.08, goal: 0.015}

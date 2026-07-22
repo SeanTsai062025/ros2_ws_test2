@@ -1,5 +1,10 @@
-# Dexter Hardware Bridge Configuration
-# Motor configuration for Servo42D drivers
+# LEGACY PYTHON BRIDGE CONFIGURATION ONLY.
+#
+# dexter_bringup no longer loads this file. The production ros2_control plugin
+# is configured in dexter_simplify.ros2_control.xacro and preserves the tested
+# 30:1/direct-drive ratios and independent command/encoder signs documented in
+# REAL_HARDWARE_ROS2_CONTROL.md. Do not use the placeholder ratios below as
+# production calibration.
 
 dexter_hardware_bridge:
   ros__parameters:

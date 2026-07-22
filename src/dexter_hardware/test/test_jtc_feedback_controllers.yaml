@@ -1,0 +1,18 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 100
+    arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+arm_controller:
+  ros__parameters:
+    joints: [physical_joint]
+    command_interfaces: [position, velocity]
+    state_interfaces: [position, velocity]
+    open_loop_control: false
+    state_publish_rate: 100.0
+    action_monitor_rate: 50.0
+    constraints:
+      goal_time: 0.25
+      stopped_velocity_tolerance: 0.03
+      physical_joint: {trajectory: 10.0, goal: 0.01}
