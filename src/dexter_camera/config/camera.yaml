@@ -1,0 +1,17 @@
+/**:
+  ros__parameters:
+    # "libcamera" reads the CSI camera. Use "test" to verify ROS without
+    # camera hardware.
+    source: libcamera
+    camera_name: ""
+    width: 1280
+    height: 720
+    fps: 30.0
+    frame_id: camera_optical_frame
+    image_topic: image_raw
+    camera_info_topic: camera_info
+    camera_info_url: ""
+    publish_camera_info: true
+    # Advanced override. When non-empty, this must produce RGB frames at an
+    # appsink named "sink".
+    pipeline: ""
