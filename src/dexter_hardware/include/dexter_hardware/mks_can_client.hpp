@@ -45,7 +45,9 @@ public:
     std::uint32_t motor_id, std::chrono::microseconds timeout, std::string & error);
   std::optional<std::vector<EncoderSample>> read_encoders(
     const std::vector<std::uint32_t> & motor_ids,
-    std::chrono::microseconds batch_timeout, std::string & error);
+    std::chrono::microseconds batch_timeout, std::string & error,
+    std::size_t max_outstanding_requests = 1U,
+    std::chrono::microseconds request_spacing = std::chrono::microseconds{0});
   std::optional<std::uint32_t> read_parameter(
     std::uint32_t motor_id, std::uint8_t parameter,
     std::chrono::milliseconds timeout, std::string & error);

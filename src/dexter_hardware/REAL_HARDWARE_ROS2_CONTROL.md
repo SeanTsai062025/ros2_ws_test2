@@ -4,8 +4,10 @@
 
 At 100 Hz, controller manager executes this order:
 
-1. `DexterSystem::read()` sends one 0x31 request to each motor as a batch, then
-   commits a state update only after all six fresh, checksum-valid responses.
+1. `DexterSystem::read()` issues one 0x31 request and receives its reply before
+   querying the next motor,
+   then commits a state update only after all six fresh,
+   checksum-valid responses.
    It waits for one overall deadline and then performs a bounded non-blocking
    drain so frames already queued by SocketCAN survive a userspace scheduling pause.
 2. JointTrajectoryController samples the trajectory and compares it with those
@@ -25,10 +27,18 @@ bridge and its separate joint-state publisher/remap are not launched.
 
 ## CAN transaction and freshness rules
 
-All six 0x31 requests are queued before the receive phase. This removes six
-serialized USB request/response round trips while retaining one outstanding
-request per motor. Responses may arrive in any order. At the batch deadline, the
-client performs a bounded non-blocking queue drain before reporting missing IDs.
+The production 0x31 request window is one: each reply must be received and
+validated before the next motor is queried. The window remains configurable up
+to six for diagnostics. Hardware CAN
+captures on the current installation showed that six-request bursts—and then
+three-request windows—could produce protocol-error escalation to error-passive
+and drop the last reply with the adapter's original bit timing. At the overall
+batch deadline, the client performs a bounded non-blocking queue drain before
+reporting a missing ID.
+
+Optional pacing is available only for diagnostic multi-request windows. It is
+zero in the production serialized configuration because the reply itself gates
+the next request.
 The receive path matches motor ID, command byte, exact response length, and MKS
 checksum. Interleaved F5 start/complete statuses, replies from other IDs, bad
 checksums, duplicates, malformed responses, and unrelated frames are classified
@@ -103,9 +113,15 @@ path and goal tolerances now expose excessive lag instead of hiding it.
 
 Hardware parameters are passed through the control xacro and bringup launch:
 
-- `encoder_timeout_us` (default 7000): blocking deadline for the complete
-  six-motor encoder batch, leaving 3 ms of a 100 Hz cycle for update and write;
-  frames already queued by SocketCAN receive one bounded non-blocking drain.
+- `encoder_timeout_us` (default 15000): fault ceiling for a complete six-motor
+  encoder batch; normal serialized batches measured 5-7 ms and the FIFO loop
+  maintained a 100 Hz mean. Frames already queued by SocketCAN receive one
+  bounded non-blocking drain.
+- `encoder_request_window` (default 1): maximum simultaneous 0x31 requests.
+  Do not increase this on the tested MKS daisy chain; values 3 and 6 reproduced
+  protocol-error bursts and missing replies.
+- `encoder_request_spacing_us` (default 0): optional pacing inside a diagnostic
+  multi-request window; it has no effect with the safe one-request window.
 - `max_speed_field` (3000), `min_speed_field` (10), and
   `fallback_speed_field` (300)
 - `acceleration_field` (0)
@@ -115,6 +131,10 @@ Hardware parameters are passed through the control xacro and bringup launch:
 Part 5 retains separate minimum/fallback speed fields of 1 and acceleration 0.
 JTC tracking tolerances and its finite 2 second goal-time allowance are in
 `dexter_bringup/config/ros2_controllers.yaml`.
+
+Controller Manager hardware-execution diagnostics use warning/error means of
+7.5/9.5 ms and standard deviations of 1/2 ms. These reflect the measured USB-CAN
+batch latency while retaining margin inside each 10 ms control period.
 
 For dependable 100 Hz operation, controller manager must be allowed to use its
 requested FIFO real-time scheduling priority. If it logs `Operation not

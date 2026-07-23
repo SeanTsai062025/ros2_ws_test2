@@ -201,10 +201,16 @@ bool DexterSystem::parse_parameters()
 
   std::uint64_t encoder_timeout_us =
     static_cast<std::uint64_t>(encoder_batch_timeout_.count());
+  std::uint64_t request_spacing_us =
+    static_cast<std::uint64_t>(encoder_request_spacing_.count());
   std::uint64_t quiet_us = static_cast<std::uint64_t>(startup_quiet_period_.count());
   std::uint64_t max_wait_us = static_cast<std::uint64_t>(startup_max_wait_.count());
   bool ok = true;
   ok &= parse_unsigned_parameter(parameters, "can_bitrate", can_bitrate_, 10000000U, get_logger());
+  ok &= parse_unsigned_parameter(
+    parameters, "encoder_request_window", encoder_request_window_, 6U, get_logger());
+  ok &= parse_unsigned_parameter(
+    parameters, "encoder_request_spacing_us", request_spacing_us, 2000U, get_logger());
   ok &= parse_unsigned_parameter(
     parameters, "encoder_timeout_us", encoder_timeout_us, 1000000U, get_logger());
   ok &= parse_unsigned_parameter(
@@ -250,12 +256,13 @@ bool DexterSystem::parse_parameters()
     min_speed_field_ > max_speed_field_ || fallback_speed_field_ > max_speed_field_ ||
     part5_min_speed_field_ > max_speed_field_ ||
     part5_fallback_speed_field_ > max_speed_field_ || encoder_timeout_us == 0U ||
-    quiet_us == 0U || max_wait_us < quiet_us)
+    encoder_request_window_ == 0U || quiet_us == 0U || max_wait_us < quiet_us)
   {
     RCLCPP_ERROR(get_logger(), "Inconsistent Dexter hardware speed/timing limits");
     ok = false;
   }
   encoder_batch_timeout_ = std::chrono::microseconds{encoder_timeout_us};
+  encoder_request_spacing_ = std::chrono::microseconds{request_spacing_us};
   startup_quiet_period_ = std::chrono::microseconds{quiet_us};
   startup_max_wait_ = std::chrono::microseconds{max_wait_us};
   return ok;
@@ -455,7 +462,8 @@ bool DexterSystem::read_all_encoders(const bool initializing)
 
   std::string error;
   const auto batch_start = std::chrono::steady_clock::now();
-  const auto samples = can_client_->read_encoders(motor_ids, encoder_batch_timeout_, error);
+  const auto samples = can_client_->read_encoders(
+    motor_ids, encoder_batch_timeout_, error, encoder_request_window_, encoder_request_spacing_);
   last_encoder_batch_ms_ = std::chrono::duration<double, std::milli>(
     std::chrono::steady_clock::now() - batch_start).count();
   max_encoder_batch_ms_ = std::max(max_encoder_batch_ms_, last_encoder_batch_ms_);

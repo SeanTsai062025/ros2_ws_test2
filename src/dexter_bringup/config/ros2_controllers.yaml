@@ -3,6 +3,20 @@ controller_manager:
   ros__parameters:
     update_rate: 100  # Hz — JTC sampling and real hardware read/write cycle
 
+    # The strictly serialized six-axis USB-CAN encoder batch normally takes 5-7 ms. Keep the
+    # diagnostic thresholds well inside the 10 ms control period while avoiding
+    # the generic 1 ms warning intended for in-process hardware.
+    diagnostics:
+      threshold:
+        hardware_components:
+          execution_time:
+            mean_error:
+              warn: 7500.0
+              error: 9500.0
+            standard_deviation:
+              warn: 1000.0
+              error: 2000.0
+
     arm_controller:
       type: joint_trajectory_controller/JointTrajectoryController
 

@@ -11,8 +11,12 @@
        description="spawn JTC active; set false for passive encoder-only hardware checks" />
   <arg name="can_interface" default="can0" />
   <arg name="can_bitrate" default="1000000" />
-  <arg name="encoder_timeout_us" default="7000"
+  <arg name="encoder_timeout_us" default="15000"
        description="blocking deadline for one six-motor encoder batch before a bounded queued-frame drain" />
+  <arg name="encoder_request_window" default="1"
+       description="number of encoder requests allowed outstanding (1..6)" />
+  <arg name="encoder_request_spacing_us" default="0"
+       description="pacing between encoder requests in one window" />
   <arg name="max_speed_field" default="3000" />
   <arg name="min_speed_field" default="10" />
   <arg name="fallback_speed_field" default="300" />
@@ -25,7 +29,7 @@
   <let name="rviz_config_path"
     value="$(find-pkg-share dexter_bringup)/config/dexter_moveit.rviz"/>
   <let name="robot_description"
-       value="$(command 'xacro $(var urdf_path) use_hardware:=$(var use_hardware) can_interface:=$(var can_interface) can_bitrate:=$(var can_bitrate) encoder_timeout_us:=$(var encoder_timeout_us) max_speed_field:=$(var max_speed_field) min_speed_field:=$(var min_speed_field) fallback_speed_field:=$(var fallback_speed_field) acceleration_field:=$(var acceleration_field) velocity_filter_alpha:=$(var velocity_filter_alpha) max_command_step_rad:=$(var max_command_step_rad)')" />
+       value="$(command 'xacro $(var urdf_path) use_hardware:=$(var use_hardware) can_interface:=$(var can_interface) can_bitrate:=$(var can_bitrate) encoder_timeout_us:=$(var encoder_timeout_us) encoder_request_window:=$(var encoder_request_window) encoder_request_spacing_us:=$(var encoder_request_spacing_us) max_speed_field:=$(var max_speed_field) min_speed_field:=$(var min_speed_field) fallback_speed_field:=$(var fallback_speed_field) acceleration_field:=$(var acceleration_field) velocity_filter_alpha:=$(var velocity_filter_alpha) max_command_step_rad:=$(var max_command_step_rad)')" />
 
   <!-- ════════════════════════════════════════════════════════════════════
        Core ros2_control stack. The xacro selects exactly one SystemInterface:

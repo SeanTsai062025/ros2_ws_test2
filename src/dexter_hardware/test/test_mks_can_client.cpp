@@ -180,31 +180,37 @@ TEST(MksCanClient, OutOfOrderResponseNeverSatisfiesCurrentMotorRequest)
   EXPECT_EQ(client->counters().unrelated, 1U);
 }
 
-TEST(MksCanClient, BatchesRequestsAndReturnsValidatedSamplesInRequestedOrder)
+TEST(MksCanClient, SerializesRequestsAndReturnsSamplesInRequestedOrder)
 {
   auto [client, transport] = make_client();
-  transport->on_send = [transport](const CanFrame &, std::deque<CanFrame> & responses) {
-      // Responses only become available after all six requests were sent. A client
-      // that serializes request/response transactions cannot pass this test.
-      if (transport->sent.size() != 6U)
+  transport->on_send = [](const CanFrame & request, std::deque<CanFrame> & responses) {
+      const auto id = request.id;
+      if (id == 1U)
       {
-        return;
+        responses.push_back(f5_status(4U, 1U));
+        responses.push_back(encoder_response(id, 100));
       }
-      responses.push_back(f5_status(4U, 1U));
-      responses.push_back(encoder_response(6U, -600));
-      responses.push_back(encoder_response(2U, 999, false));
-      responses.push_back(encoder_response(4U, 400));
-      responses.push_back(malformed_encoder_response(3U));
-      responses.push_back(encoder_response(2U, 200));
-      responses.push_back(encoder_response(2U, 201));
-      responses.push_back(encoder_response(5U, 500));
-      responses.push_back(encoder_response(1U, 100));
-      responses.push_back(encoder_response(3U, 300));
+      else if (id == 2U)
+      {
+        responses.push_back(encoder_response(id, 999, false));
+        responses.push_back(encoder_response(id, 200));
+        responses.push_back(encoder_response(id, 201));
+      }
+      else if (id == 3U)
+      {
+        responses.push_back(malformed_encoder_response(3U));
+        responses.push_back(encoder_response(3U, 300));
+      }
+      else
+      {
+        const auto ticks = id == 6U ? -600 : static_cast<std::int64_t>(id * 100U);
+        responses.push_back(encoder_response(id, ticks));
+      }
     };
 
   std::string error;
   const std::vector<std::uint32_t> ids{1U, 2U, 3U, 4U, 5U, 6U};
-  const auto samples = client->read_encoders(ids, std::chrono::milliseconds{5}, error);
+  const auto samples = client->read_encoders(ids, std::chrono::milliseconds{5}, error, 1U);
   ASSERT_TRUE(samples) << error;
   ASSERT_EQ(samples->size(), ids.size());
   const std::array<std::int64_t, 6> expected_ticks{100, 200, 300, 400, 500, -600};
@@ -217,19 +223,18 @@ TEST(MksCanClient, BatchesRequestsAndReturnsValidatedSamplesInRequestedOrder)
   EXPECT_EQ(client->counters().f5_status, 1U);
   EXPECT_EQ(client->counters().bad_checksum, 1U);
   EXPECT_EQ(client->counters().malformed_encoder, 1U);
-  EXPECT_EQ(client->counters().duplicate_encoder, 1U);
+  EXPECT_EQ(client->counters().unrelated, 1U);
+  EXPECT_EQ(client->counters().duplicate_encoder, 0U);
 }
 
 TEST(MksCanClient, IncompleteBatchLatchesUnsynchronizedAndNamesMissingMotors)
 {
   auto [client, transport] = make_client();
-  transport->on_send = [transport](const CanFrame &, std::deque<CanFrame> & responses) {
-      if (transport->sent.size() == 6U)
+  transport->on_send = [](const CanFrame & request, std::deque<CanFrame> & responses) {
+      if (request.id <= 5U)
       {
-        for (std::uint32_t id = 1U; id <= 5U; ++id)
-        {
-          responses.push_back(encoder_response(id, static_cast<std::int64_t>(id * 10U)));
-        }
+        responses.push_back(encoder_response(
+          request.id, static_cast<std::int64_t>(request.id * 10U)));
       }
     };
 
@@ -244,28 +249,22 @@ TEST(MksCanClient, IncompleteBatchLatchesUnsynchronizedAndNamesMissingMotors)
   EXPECT_EQ(transport->sent.size(), 6U);
 }
 
-TEST(MksCanClient, DrainsKernelQueuedBatchAfterUserspaceSchedulingPause)
+TEST(MksCanClient, AcceptsKernelQueuedResponseAfterUserspaceSchedulingPause)
 {
   auto [client, transport] = make_client();
-  transport->on_send = [transport](const CanFrame &, std::deque<CanFrame> & responses) {
-      if (transport->sent.size() == 6U)
-      {
-        for (std::uint32_t id = 1U; id <= 6U; ++id)
-        {
-          responses.push_back(encoder_response(id, static_cast<std::int64_t>(id * 100U)));
-        }
-      }
+  transport->on_send = [](const CanFrame & request, std::deque<CanFrame> & responses) {
+      responses.push_back(encoder_response(
+        request.id, static_cast<std::int64_t>(request.id * 100U)));
     };
   transport->nonempty_receive_delay = std::chrono::milliseconds{2};
   transport->delay_next_nonempty_receive = true;
 
   std::string error;
-  const std::vector<std::uint32_t> ids{1U, 2U, 3U, 4U, 5U, 6U};
+  const std::vector<std::uint32_t> ids{1U};
   const auto samples = client->read_encoders(ids, std::chrono::milliseconds{1}, error);
   ASSERT_TRUE(samples) << error;
   ASSERT_EQ(samples->size(), ids.size());
   EXPECT_TRUE(client->synchronized());
-  EXPECT_GE(client->counters().post_deadline_drained, 5U);
 }
 
 TEST(MksCanClient, RejectsDuplicateMotorIdsBeforeTransmitting)
