@@ -21,25 +21,112 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.conditions import IfCondition
+from launch.actions import OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterValue
+
+
+def _as_bool(value):
+    """Convert a launch argument to a boolean."""
+    return value.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def _launch_setup(context, config_file, system_python_path):
+    """Create nodes after launch arguments have been resolved."""
+    source = LaunchConfiguration('source').perform(context)
+    width = int(LaunchConfiguration('width').perform(context))
+    height = int(LaunchConfiguration('height').perform(context))
+    fps = float(LaunchConfiguration('fps').perform(context))
+    pixel_format = LaunchConfiguration('format').perform(context)
+    frame_id = LaunchConfiguration('frame_id').perform(context)
+    camera_name = LaunchConfiguration('camera_name').perform(context)
+    camera_info_url = LaunchConfiguration('camera_info_url').perform(context)
+    view = _as_bool(LaunchConfiguration('view').perform(context))
+
+    if width <= 0 or height <= 0:
+        raise RuntimeError('width and height must be positive')
+    if fps <= 0.0 or fps > 240.0:
+        raise RuntimeError('fps must be greater than 0 and at most 240')
+
+    nodes = []
+    if source == 'libcamera':
+        camera_selector = 0
+        if camera_name:
+            camera_selector = (
+                int(camera_name) if camera_name.isdigit() else camera_name
+            )
+
+        frame_duration = max(1, round(1_000_000 / fps))
+        parameters = {
+            'camera': camera_selector,
+            'role': 'viewfinder',
+            'format': pixel_format,
+            'width': width,
+            'height': height,
+            'frame_id': frame_id,
+            'use_node_time': True,
+            'FrameDurationLimits': [frame_duration, frame_duration],
+        }
+        if camera_info_url:
+            parameters['camera_info_url'] = camera_info_url
+
+        # camera_ros resolves the workspace's Pi 5-compatible libcamera after
+        # install/setup.bash has been sourced.
+        nodes.append(Node(
+            package='camera_ros',
+            executable='camera_node',
+            name='camera',
+            output='screen',
+            parameters=[parameters],
+        ))
+    elif source == 'test':
+        nodes.append(Node(
+            package='dexter_camera',
+            executable='camera_node',
+            namespace='camera',
+            name='camera_node',
+            output='screen',
+            parameters=[
+                config_file,
+                {
+                    'source': 'test',
+                    'width': width,
+                    'height': height,
+                    'fps': fps,
+                    'frame_id': frame_id,
+                    'camera_name': camera_name,
+                    'camera_info_url': camera_info_url,
+                },
+            ],
+        ))
+    else:
+        raise RuntimeError(
+            f'Unsupported source {source!r}; use "libcamera" or "test"'
+        )
+
+    if view:
+        nodes.append(Node(
+            package='rqt_image_view',
+            executable='rqt_image_view',
+            name='camera_view',
+            arguments=['/camera/image_raw'],
+            output='screen',
+            # The Dexter Conda environment hides Ubuntu's PyQt5 package.
+            # Preserve the ROS path while exposing the system Qt bindings.
+            additional_env={'PYTHONPATH': system_python_path},
+        ))
+
+    return nodes
 
 
 def generate_launch_description():
     """Create the Dexter camera launch description."""
     package_share = get_package_share_directory('dexter_camera')
     config_file = os.path.join(package_share, 'config', 'camera.yaml')
-
-    source = LaunchConfiguration('source')
-    width = LaunchConfiguration('width')
-    height = LaunchConfiguration('height')
-    fps = LaunchConfiguration('fps')
-    frame_id = LaunchConfiguration('frame_id')
-    camera_name = LaunchConfiguration('camera_name')
-    camera_info_url = LaunchConfiguration('camera_info_url')
-    view = LaunchConfiguration('view')
+    python_path = os.environ.get('PYTHONPATH', '')
+    system_python_path = '/usr/lib/python3/dist-packages'
+    if python_path:
+        system_python_path += os.pathsep + python_path
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -50,6 +137,11 @@ def generate_launch_description():
         DeclareLaunchArgument('width', default_value='1280'),
         DeclareLaunchArgument('height', default_value='720'),
         DeclareLaunchArgument('fps', default_value='30.0'),
+        DeclareLaunchArgument(
+            'format',
+            default_value='RGB888',
+            description='libcamera pixel format',
+        ),
         DeclareLaunchArgument(
             'frame_id', default_value='camera_optical_frame'
         ),
@@ -68,35 +160,11 @@ def generate_launch_description():
             default_value='true',
             description='Open rqt_image_view',
         ),
-        Node(
-            package='dexter_camera',
-            executable='camera_node',
-            namespace='camera',
-            name='camera_node',
-            output='screen',
-            parameters=[
-                config_file,
-                {
-                    'source': ParameterValue(source, value_type=str),
-                    'width': ParameterValue(width, value_type=int),
-                    'height': ParameterValue(height, value_type=int),
-                    'fps': ParameterValue(fps, value_type=float),
-                    'frame_id': ParameterValue(frame_id, value_type=str),
-                    'camera_name': ParameterValue(
-                        camera_name, value_type=str
-                    ),
-                    'camera_info_url': ParameterValue(
-                        camera_info_url, value_type=str
-                    ),
-                },
-            ],
-        ),
-        Node(
-            package='rqt_image_view',
-            executable='rqt_image_view',
-            name='camera_view',
-            arguments=['/camera/image_raw'],
-            output='screen',
-            condition=IfCondition(view),
+        OpaqueFunction(
+            function=_launch_setup,
+            kwargs={
+                'config_file': config_file,
+                'system_python_path': system_python_path,
+            },
         ),
     ])

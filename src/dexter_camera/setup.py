@@ -41,6 +41,10 @@ setup(
             os.path.join('share', package_name, 'launch'),
             glob('launch/*.launch.py'),
         ),
+        (
+            os.path.join('share', package_name, 'patches'),
+            glob('patches/*.patch'),
+        ),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
