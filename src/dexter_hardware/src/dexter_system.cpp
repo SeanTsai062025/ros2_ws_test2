@@ -17,6 +17,7 @@
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "dexter_hardware/command_step_guard.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "pluginlib/class_list_macros.hpp"
 #include "rclcpp/logging.hpp"
@@ -575,14 +576,26 @@ ReturnType DexterSystem::write(const rclcpp::Time &, const rclcpp::Duration &)
       safe_stop("non-finite or unavailable JTC command", true);
       return ReturnType::ERROR;
     }
-    if (
-      std::isfinite(last_accepted_commands_[index]) &&
-      std::abs(position_commands[index] - last_accepted_commands_[index]) > max_command_step_rad_)
+    const auto step_decision = evaluate_command_step(
+      last_accepted_commands_[index], position_commands[index], positions_[index],
+      max_command_step_rad_);
+    if (step_decision == CommandStepDecision::REBASE_TO_MEASUREMENT)
+    {
+      RCLCPP_WARN(
+        get_logger(),
+        "Rebasing %s command from %.6f to fresh measured trajectory start %.6f rad "
+        "(encoder %.6f rad)",
+        calibrations_[index].joint_name.c_str(), last_accepted_commands_[index],
+        position_commands[index], positions_[index]);
+    }
+    else if (step_decision == CommandStepDecision::REJECT)
     {
       RCLCPP_ERROR(
-        get_logger(), "Command step rejected for %s: %.6f -> %.6f rad exceeds %.6f rad",
+        get_logger(),
+        "Command step rejected for %s: %.6f -> %.6f rad exceeds %.6f rad "
+        "and does not match fresh encoder position %.6f rad",
         calibrations_[index].joint_name.c_str(), last_accepted_commands_[index],
-        position_commands[index], max_command_step_rad_);
+        position_commands[index], max_command_step_rad_, positions_[index]);
       safe_stop("position command step limit exceeded", true);
       return ReturnType::ERROR;
     }

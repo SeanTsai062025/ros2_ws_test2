@@ -1,21 +1,24 @@
 # This config file is used by ros2_control
 controller_manager:
   ros__parameters:
-    update_rate: 100  # Hz — JTC sampling and real hardware read/write cycle
+    # Six serialized encoder transactions take about 9.8-12.4 ms on the
+    # production USB-CAN path. A 60 Hz period is 16.67 ms, which contains the
+    # measured batch and the configured 15 ms fault timeout without continuously
+    # overrunning the controller-manager deadline.
+    update_rate: 60
 
-    # The strictly serialized six-axis USB-CAN encoder batch normally takes 5-7 ms. Keep the
-    # diagnostic thresholds well inside the 10 ms control period while avoiding
-    # the generic 1 ms warning intended for in-process hardware.
+    # Keep execution diagnostics inside the 16.67 ms control period while
+    # allowing for normal USB-CAN scheduling variation.
     diagnostics:
       threshold:
         hardware_components:
           execution_time:
             mean_error:
-              warn: 7500.0
-              error: 9500.0
+              warn: 12000.0
+              error: 15000.0
             standard_deviation:
-              warn: 1000.0
-              error: 2000.0
+              warn: 1500.0
+              error: 3000.0
 
     arm_controller:
       type: joint_trajectory_controller/JointTrajectoryController
@@ -46,8 +49,8 @@ arm_controller:
     open_loop_control: false
     allow_nonzero_velocity_at_trajectory_end: false
 
-    # Publish controller state at 100 Hz — matches bridge loop exactly
-    state_publish_rate: 100.0
+    # Publish controller state at the real-hardware control-loop rate.
+    state_publish_rate: 60.0
 
     # Action monitor rate — how often the JTC checks if the goal is reached
     action_monitor_rate: 20.0

@@ -95,6 +95,9 @@ if(BUILD_TESTING)
   ament_add_gtest(test_control_cycle_guard test/test_control_cycle_guard.cpp)
   target_include_directories(test_control_cycle_guard PRIVATE include)
 
+  ament_add_gtest(test_command_step_guard test/test_command_step_guard.cpp)
+  target_include_directories(test_command_step_guard PRIVATE include)
+
   ament_add_gtest(test_plugin_loading test/test_plugin_loading.cpp)
   ament_target_dependencies(test_plugin_loading hardware_interface pluginlib)
 

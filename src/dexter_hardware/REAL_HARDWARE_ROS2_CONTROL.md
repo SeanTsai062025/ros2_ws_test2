@@ -2,7 +2,7 @@
 
 ## Control flow
 
-At 100 Hz, controller manager executes this order:
+At 60 Hz, controller manager executes this order:
 
 1. `DexterSystem::read()` issues one 0x31 request and receives its reply before
    querying the next motor,
@@ -75,6 +75,9 @@ flooding.
   permitted. The first target therefore cannot be zero/home or based on stale
   pre-switch feedback, and unchanged measured targets do not generate F5 traffic.
 - A configurable per-cycle position step limit rejects discontinuous commands.
+  A new trajectory may safely rebase from the previous command to fresh encoder
+  feedback when an idle/backdrivable joint has moved; a large target away from
+  both the previous command and measured position is still rejected.
 - Encoder loss, unsynchronized transactions, non-finite commands, command-step
   violations, 24-bit target overflow, and CAN transmit errors issue F6 zero-speed
   stops and return a hardware error.
@@ -105,7 +108,7 @@ SR_CLOSE, 800 mA, 128 subdivisions, with a speed-field scale of 8 and
 acceleration field 0.
 
 The motor's approximately 2 kHz interpolation and position PID remain the
-low-level actuator loop. JTC is the 100 Hz sampler and tracking monitor. Because
+low-level actuator loop. JTC is the 60 Hz sampler and tracking monitor. Because
 the driver interpolates toward each 0xF5 target, physical feedback will normally
 lag the current JTC reference by a small, speed-dependent phase delay. The
 plugin intentionally does not add the former software look-ahead: actual-state
@@ -114,9 +117,10 @@ path and goal tolerances now expose excessive lag instead of hiding it.
 Hardware parameters are passed through the control xacro and bringup launch:
 
 - `encoder_timeout_us` (default 15000): fault ceiling for a complete six-motor
-  encoder batch; normal serialized batches measured 5-7 ms and the FIFO loop
-  maintained a 100 Hz mean. Frames already queued by SocketCAN receive one
-  bounded non-blocking drain.
+  encoder batch. Long-running production traces measured normal serialized
+  batches around 9.8-12.4 ms. The 60 Hz controller period is 16.67 ms, leaving
+  margin for the complete batch, controller update, and CAN writes. Frames
+  already queued by SocketCAN receive one bounded non-blocking drain.
 - `encoder_request_window` (default 1): maximum simultaneous 0x31 requests.
   Do not increase this on the tested MKS daisy chain; values 3 and 6 reproduced
   protocol-error bursts and missing replies.
@@ -126,17 +130,18 @@ Hardware parameters are passed through the control xacro and bringup launch:
   `fallback_speed_field` (300)
 - `acceleration_field` (0)
 - `velocity_filter_alpha` (0.25)
-- `max_command_step_rad` (0.05 per 100 Hz cycle)
+- `max_command_step_rad` (0.05 per control cycle). At the configured 2 rad/s
+  joint limit, a 60 Hz trajectory advances about 0.033 rad per cycle.
 
 Part 5 retains separate minimum/fallback speed fields of 1 and acceleration 0.
 JTC tracking tolerances and its finite 2 second goal-time allowance are in
 `dexter_bringup/config/ros2_controllers.yaml`.
 
 Controller Manager hardware-execution diagnostics use warning/error means of
-7.5/9.5 ms and standard deviations of 1/2 ms. These reflect the measured USB-CAN
-batch latency while retaining margin inside each 10 ms control period.
+12/15 ms and standard deviations of 1.5/3 ms. These reflect the measured USB-CAN
+batch latency while retaining margin inside each 16.67 ms control period.
 
-For dependable 100 Hz operation, controller manager must be allowed to use its
+For dependable operation, controller manager must be allowed to use its
 requested FIFO real-time scheduling priority. If it logs `Operation not
 permitted`, install the supplied limits file and add the ROS user to its group:
 
