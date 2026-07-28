@@ -1,7 +1,7 @@
 <?xml version="1.0" ?>
 <!-- Generated using onshape-to-robot -->
-<!-- Onshape https://cad.onshape.com/documents/dc3877dd7aeaeff0d6c9582a/w/7e4ff4bdb4907839a9954149/e/7f63cf5cd2085b46ecf2bc2e -->
-<robot name="dexter_simplify">
+<!-- Onshape https://cad.onshape.com/documents/dc3877dd7aeaeff0d6c9582a/w/7e4ff4bdb4907839a9954149/e/9d7709a754b68365a854ade1 -->
+<robot name="base">
   <!-- Link base -->
   <link name="base">
     <inertial>
@@ -11,18 +11,18 @@
     </inertial>
     <!-- Part base -->
     <visual>
-      <origin xyz="-0.07 0.07 0.1" rpy="0 -0 -5.55112e-16"/>
+      <origin xyz="-0.07 0.07 0" rpy="0 -0 0"/>
       <geometry>
-        <mesh filename="package://dexter_description/fix_with_limit/assets/base.stl"/>
+        <mesh filename="package://assets/base.stl"/>
       </geometry>
       <material name="base_material">
-        <color rgba="0.647059 0.647059 0.647059 1"/>
+        <color rgba="0.8 0.776471 0.713725 1"/>
       </material>
     </visual>
     <collision>
-      <origin xyz="-0.07 0.07 0.1" rpy="0 -0 -5.55112e-16"/>
+      <origin xyz="-0.07 0.07 0" rpy="0 -0 0"/>
       <geometry>
-        <mesh filename="package://dexter_description/fix_with_limit/assets/base.stl"/>
+        <mesh filename="package://assets/base.stl"/>
       </geometry>
     </collision>
   </link>
@@ -35,18 +35,18 @@
     </inertial>
     <!-- Part part1 -->
     <visual>
-      <origin xyz="0.021 0.039 -0.003" rpy="3.14159 6.23533e-54 -1.5708"/>
+      <origin xyz="0.021 0.039 -0.003" rpy="3.14159 1.03096e-40 -1.5708"/>
       <geometry>
-        <mesh filename="package://dexter_description/fix_with_limit/assets/part1.stl"/>
+        <mesh filename="package://assets/part1.stl"/>
       </geometry>
       <material name="part1_material">
         <color rgba="0.701961 0.682353 0.623529 1"/>
       </material>
     </visual>
     <collision>
-      <origin xyz="0.021 0.039 -0.003" rpy="3.14159 6.23533e-54 -1.5708"/>
+      <origin xyz="0.021 0.039 -0.003" rpy="3.14159 1.03096e-40 -1.5708"/>
       <geometry>
-        <mesh filename="package://dexter_description/fix_with_limit/assets/part1.stl"/>
+        <mesh filename="package://assets/part1.stl"/>
       </geometry>
     </collision>
   </link>
@@ -59,18 +59,18 @@
     </inertial>
     <!-- Part part2 -->
     <visual>
-      <origin xyz="0.021 0.123 -0.007" rpy="1.11022e-15 -7.77156e-16 -1.5708"/>
+      <origin xyz="0.021 0.123 -0.007" rpy="5.55112e-16 -7.77156e-16 -1.5708"/>
       <geometry>
-        <mesh filename="package://dexter_description/fix_with_limit/assets/part2.stl"/>
+        <mesh filename="package://assets/part2.stl"/>
       </geometry>
       <material name="part2_material">
         <color rgba="0.917647 0.917647 0.917647 1"/>
       </material>
     </visual>
     <collision>
-      <origin xyz="0.021 0.123 -0.007" rpy="1.11022e-15 -7.77156e-16 -1.5708"/>
+      <origin xyz="0.021 0.123 -0.007" rpy="5.55112e-16 -7.77156e-16 -1.5708"/>
       <geometry>
-        <mesh filename="package://dexter_description/fix_with_limit/assets/part2.stl"/>
+        <mesh filename="package://assets/part2.stl"/>
       </geometry>
     </collision>
   </link>
@@ -85,7 +85,7 @@
     <visual>
       <origin xyz="-0.029 -0.043 -0.0095" rpy="1.5708 1.04374e-15 -3.14159"/>
       <geometry>
-        <mesh filename="package://dexter_description/fix_with_limit/assets/part3.stl"/>
+        <mesh filename="package://assets/part3.stl"/>
       </geometry>
       <material name="part3_material">
         <color rgba="0.701961 0.682353 0.623529 1"/>
@@ -94,7 +94,7 @@
     <collision>
       <origin xyz="-0.029 -0.043 -0.0095" rpy="1.5708 1.04374e-15 -3.14159"/>
       <geometry>
-        <mesh filename="package://dexter_description/fix_with_limit/assets/part3.stl"/>
+        <mesh filename="package://assets/part3.stl"/>
       </geometry>
     </collision>
   </link>
@@ -109,7 +109,7 @@
     <visual>
       <origin xyz="-0.021 -0.021 -0.0005" rpy="-3.14159 -1.5708 0"/>
       <geometry>
-        <mesh filename="package://dexter_description/fix_with_limit/assets/part4.stl"/>
+        <mesh filename="package://assets/part4.stl"/>
       </geometry>
       <material name="part4_material">
         <color rgba="0.701961 0.701961 0.701961 1"/>
@@ -118,7 +118,7 @@
     <collision>
       <origin xyz="-0.021 -0.021 -0.0005" rpy="-3.14159 -1.5708 0"/>
       <geometry>
-        <mesh filename="package://dexter_description/fix_with_limit/assets/part4.stl"/>
+        <mesh filename="package://assets/part4.stl"/>
       </geometry>
     </collision>
   </link>
@@ -133,7 +133,7 @@
     <visual>
       <origin xyz="-0.015 -0.0457797 0.00678111" rpy="-1.5708 -3.27863e-16 -1.5708"/>
       <geometry>
-        <mesh filename="package://dexter_description/fix_with_limit/assets/part5.stl"/>
+        <mesh filename="package://assets/part5.stl"/>
       </geometry>
       <material name="part5_material">
         <color rgba="0.8 0.8 0.8 1"/>
@@ -142,7 +142,7 @@
     <collision>
       <origin xyz="-0.015 -0.0457797 0.00678111" rpy="-1.5708 -3.27863e-16 -1.5708"/>
       <geometry>
-        <mesh filename="package://dexter_description/fix_with_limit/assets/part5.stl"/>
+        <mesh filename="package://assets/part5.stl"/>
       </geometry>
     </collision>
   </link>
@@ -157,7 +157,7 @@
     <visual>
       <origin xyz="0.04 0.028 -0.015" rpy="1.5708 1.5708 0"/>
       <geometry>
-        <mesh filename="package://dexter_description/fix_with_limit/assets/part6.stl"/>
+        <mesh filename="package://assets/part6.stl"/>
       </geometry>
       <material name="part6_material">
         <color rgba="0.768627 0.886275 0.952941 1"/>
@@ -166,31 +166,21 @@
     <collision>
       <origin xyz="0.04 0.028 -0.015" rpy="1.5708 1.5708 0"/>
       <geometry>
-        <mesh filename="package://dexter_description/fix_with_limit/assets/part6.stl"/>
+        <mesh filename="package://assets/part6.stl"/>
       </geometry>
     </collision>
   </link>
-  <!--
-    Approximate end-effector frame at the center of the gripper tip.
-    Adjust xyz and rpy on gripper_tip_joint after measuring the real tool.
-  -->
-  <link name="gripper_tip"/>
-  <joint name="gripper_tip_joint" type="fixed">
-    <parent link="part6"/>
-    <child link="gripper_tip"/>
-    <origin xyz="0 0.073 -0.035" rpy="1.5708 3.14159 0"/>
-  </joint>
   <!-- Joint from part5 to part6 -->
   <joint name="part5" type="revolute">
-    <origin xyz="0 -0.062 0.028" rpy="-1.5708 1.5708 0"/>
+    <origin xyz="-1.38778e-17 -0.062 0.028" rpy="-1.5708 1.5708 0"/>
     <parent link="part5"/>
     <child link="part6"/>
     <axis xyz="0 0 1"/>
-    <limit effort="10" velocity="10" lower="-6.1959188446" upper="0.0872665"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
   </joint>
   <!-- Joint from part4 to part5 -->
   <joint name="part4" type="revolute">
-    <origin xyz="-5.55112e-17 -0.029 -0.057529" rpy="-1.5708 -1.5708 0"/>
+    <origin xyz="-1.11022e-16 -0.029 -0.057529" rpy="-1.5708 -1.5708 0"/>
     <parent link="part4"/>
     <child link="part5"/>
     <axis xyz="0 0 1"/>
@@ -202,11 +192,11 @@
     <parent link="part3"/>
     <child link="part4"/>
     <axis xyz="0 0 1"/>
-    <limit effort="10" velocity="10" lower="-1.7453292519943295" upper="1.7453292519943295"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
   </joint>
   <!-- Joint from part2 to part3 -->
   <joint name="part2" type="revolute">
-    <origin xyz="-8.27116e-17 0.102 0.0615" rpy="-3.14159 -7.77156e-16 -1.5708"/>
+    <origin xyz="-4.85723e-17 0.102 0.0615" rpy="-3.14159 -7.77156e-16 -1.5708"/>
     <parent link="part2"/>
     <child link="part3"/>
     <axis xyz="0 0 1"/>
@@ -214,18 +204,18 @@
   </joint>
   <!-- Joint from part1 to part2 -->
   <joint name="part1" type="revolute">
-    <origin xyz="-4.85723e-18 0.04 -0.032057" rpy="-1.5708 -4.33876e-25 3.14159"/>
+    <origin xyz="-1.04083e-17 0.04 -0.032057" rpy="-1.5708 -1.10203e-38 3.14159"/>
     <parent link="part1"/>
     <child link="part2"/>
     <axis xyz="0 0 1"/>
-    <limit effort="10" velocity="10" lower="-1.2217304763960306" upper="1.5707963267948966"/>
+    <limit effort="10" velocity="10" lower="-1.5708" upper="1.5708"/>
   </joint>
   <!-- Joint from base to part1 -->
   <joint name="base" type="revolute">
-    <origin xyz="-2.91434e-16 -7.91034e-16 0.1085" rpy="3.14159 -0 -5.55112e-16"/>
+    <origin xyz="0 0 0.1085" rpy="3.14159 -0 0"/>
     <parent link="base"/>
     <child link="part1"/>
     <axis xyz="0 0 1"/>
-    <limit effort="10" velocity="10" lower="-2.2689280275926285" upper="2.2689280275926285"/>
+    <limit effort="10" velocity="10" lower="-3.141592653589793" upper="3.141592653589793"/>
   </joint>
 </robot>

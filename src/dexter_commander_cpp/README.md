@@ -28,6 +28,53 @@ ros2 topic pub -1 /joint_command dexter_interfaces/msg/JointCommand \
   "{positions: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], speed_scaling: 0.5}"
 ```
 
+The example above is useful for occasional testing, but it is not a
+low-latency command source. Each invocation of `ros2 topic pub -1` starts a new
+Python process, creates a new ROS 2 node and publisher, waits for DDS discovery,
+publishes once, and exits. That startup happens before `dexter_commander_cpp`
+can receive the message and can take around one second on the robot computer.
+
+## Persistent topic architecture
+
+`dexter_commander_cpp` creates its `/joint_command` subscription once during
+startup and keeps it alive until the commander exits. The process which
+produces commands must likewise be a long-running ROS 2 node which creates one
+publisher and reuses it:
+
+```text
+ossia score
+    -> long-running ossia/ROS 2 bridge
+       -> persistent /joint_command publisher
+          -> persistent dexter_commander subscription
+             -> MoveIt plan and execute
+```
+
+The publisher cannot live in `dexter_commander_cpp`: a ROS 2 publisher is the
+sending endpoint, and another process cannot write messages through a
+publisher owned by the commander. Putting a publisher there would only allow
+the commander to publish its own messages. The bridge is the command producer,
+so it must own the publisher.
+
+The future ossia bridge should:
+
+1. Start once and create a ROS 2 node.
+2. Create one reliable, volatile publisher with queue depth 10 for
+   `dexter_interfaces/msg/JointCommand` on `/joint_command`.
+3. Convert each incoming ossia command to a `JointCommand` and call `publish()`
+   on that existing publisher.
+4. Keep the node and publisher alive while commands are expected.
+
+DDS discovery then happens once when the bridge and commander start. Each
+later ossia command uses the established topic endpoints. No interactive
+Dexter CLI is required.
+
+There is no form of `ros2 topic pub -1` that can inject a new value through a
+publisher owned by another process. Until the persistent bridge is available,
+the one-shot command above remains suitable for functional tests, but every
+invocation necessarily pays process-startup and discovery cost. A
+`ros2 topic pub --rate ...` process can keep one publisher alive, but it only
+repeats its configured message and is not a general varying-command interface.
+
 The former array interface remains temporarily available on
 `/joint_command_legacy`. It uses scaling `0.5`, retaining the former 1.0 rad/s
 and 1.0 rad/s² maximums:

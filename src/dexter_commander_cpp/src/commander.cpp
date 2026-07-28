@@ -4,6 +4,7 @@
 #include <dexter_interfaces/msg/joint_command.hpp>
 #include <dexter_interfaces/msg/pose_command.hpp>
 
+#include <chrono>
 #include <cmath>
 
 using MoveGroupInterface = moveit::planning_interface::MoveGroupInterface;
@@ -136,23 +137,47 @@ private:
 
   void planAndExecute(const std::shared_ptr<MoveGroupInterface> &interface)
   {
+    const auto planning_started = std::chrono::steady_clock::now();
     MoveGroupInterface::Plan plan;
     auto error_code = interface->plan(plan);
     bool success = (error_code == moveit::core::MoveItErrorCode::SUCCESS);
+    const auto planning_elapsed = std::chrono::duration<double>(
+      std::chrono::steady_clock::now() - planning_started).count();
 
     if (success) {
-      RCLCPP_INFO(node_->get_logger(), "Planning succeeded! Executing...");
-      interface->execute(plan);
+      RCLCPP_INFO(
+        node_->get_logger(),
+        "Planning succeeded in %.3f s; submitting trajectory for execution...",
+        planning_elapsed);
+      const auto execution_started = std::chrono::steady_clock::now();
+      const auto execution_result = interface->execute(plan);
+      const auto execution_elapsed = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - execution_started).count();
+      if (execution_result != moveit::core::MoveItErrorCode::SUCCESS) {
+        RCLCPP_ERROR(
+          node_->get_logger(),
+          "Trajectory execution failed after %.3f s with error code: %d",
+          execution_elapsed, execution_result.val);
+      } else {
+        RCLCPP_INFO(
+          node_->get_logger(),
+          "Trajectory execution completed in %.3f s",
+          execution_elapsed);
+      }
     } else {
       RCLCPP_ERROR(node_->get_logger(),
-        "Planning FAILED with error code: %d. "
+        "Planning FAILED after %.3f s with error code: %d. "
         "Check that the target pose is reachable and collision-free.",
-        error_code.val);
+        planning_elapsed, error_code.val);
     }
   }
 
   void jointCmdCallback(const JointCmd &msg)
   {
+    RCLCPP_INFO(
+      node_->get_logger(),
+      "Joint command received; speed=%.2f",
+      msg.speed_scaling);
     const std::vector<double> joints(msg.positions.begin(), msg.positions.end());
     goToJointTarget(joints, msg.speed_scaling);
   }
