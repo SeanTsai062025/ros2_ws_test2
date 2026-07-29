@@ -210,7 +210,4 @@ hello everyone, welcome to the robot magic show, my name is sean.
 
 
 -----
-但是我之後會從ossia score 下命令 我會寫一個ossia score&ros2 bridge讓我可以從ossia score 下命令 透過ros2 topic 控制moveit 
-如果變成現在這樣子要另外開一個cli 還有辦法作到我希望的從ossia score 下令嘛
 
-help me polish to prompt
