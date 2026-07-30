@@ -56,6 +56,10 @@ setup(
     entry_points={
         'console_scripts': [
             'camera_node = dexter_camera.camera_node:main',
+            (
+                'gray_object_detector = '
+                'dexter_camera.gray_object_detector:main'
+            ),
         ],
     },
 )

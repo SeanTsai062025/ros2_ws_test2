@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Launch the CSI camera publisher and optional image viewer."""
+"""Launch the camera, gray-object detector, and optional image viewer."""
 
 import os
 
@@ -31,7 +31,12 @@ def _as_bool(value):
     return value.strip().lower() in ('1', 'true', 'yes', 'on')
 
 
-def _launch_setup(context, config_file, system_python_path):
+def _launch_setup(
+    context,
+    config_file,
+    detector_config_file,
+    system_python_path,
+):
     """Create nodes after launch arguments have been resolved."""
     source = LaunchConfiguration('source').perform(context)
     width = int(LaunchConfiguration('width').perform(context))
@@ -41,7 +46,11 @@ def _launch_setup(context, config_file, system_python_path):
     frame_id = LaunchConfiguration('frame_id').perform(context)
     camera_name = LaunchConfiguration('camera_name').perform(context)
     camera_info_url = LaunchConfiguration('camera_info_url').perform(context)
+    detect_gray_object = _as_bool(
+        LaunchConfiguration('detect_gray_object').perform(context)
+    )
     view = _as_bool(LaunchConfiguration('view').perform(context))
+    view_topic = LaunchConfiguration('view_topic').perform(context)
 
     if width <= 0 or height <= 0:
         raise RuntimeError('width and height must be positive')
@@ -104,12 +113,21 @@ def _launch_setup(context, config_file, system_python_path):
             f'Unsupported source {source!r}; use "libcamera" or "test"'
         )
 
+    if detect_gray_object:
+        nodes.append(Node(
+            package='dexter_camera',
+            executable='gray_object_detector',
+            name='gray_object_detector',
+            output='screen',
+            parameters=[detector_config_file],
+        ))
+
     if view:
         nodes.append(Node(
             package='rqt_image_view',
             executable='rqt_image_view',
             name='camera_view',
-            arguments=['/camera/image_raw'],
+            arguments=[view_topic],
             output='screen',
             # The Dexter Conda environment hides Ubuntu's PyQt5 package.
             # Preserve the ROS path while exposing the system Qt bindings.
@@ -123,6 +141,9 @@ def generate_launch_description():
     """Create the Dexter camera launch description."""
     package_share = get_package_share_directory('dexter_camera')
     config_file = os.path.join(package_share, 'config', 'camera.yaml')
+    detector_config_file = os.path.join(
+        package_share, 'config', 'gray_object_detector.yaml'
+    )
     python_path = os.environ.get('PYTHONPATH', '')
     system_python_path = '/usr/lib/python3/dist-packages'
     if python_path:
@@ -160,10 +181,21 @@ def generate_launch_description():
             default_value='true',
             description='Open rqt_image_view',
         ),
+        DeclareLaunchArgument(
+            'detect_gray_object',
+            default_value='true',
+            description='Run the gray-object detector',
+        ),
+        DeclareLaunchArgument(
+            'view_topic',
+            default_value='/gray_object/debug_image',
+            description='Image topic initially displayed by rqt_image_view',
+        ),
         OpaqueFunction(
             function=_launch_setup,
             kwargs={
                 'config_file': config_file,
+                'detector_config_file': detector_config_file,
                 'system_python_path': system_python_path,
             },
         ),

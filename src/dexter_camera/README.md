@@ -6,10 +6,16 @@ test pattern is included to verify the ROS publisher without camera hardware.
 
 The camera at Amazon ASIN `B09VSRH14M` is an Arducam 8 MP Sony IMX219 module.
 It is compatible with the Raspberry Pi Camera Module 2 driver. The default
-launch configuration publishes:
+launch configuration publishes the camera stream plus gray-object detection:
 
 - `/camera/image_raw` (`sensor_msgs/msg/Image`, `bgr8`)
 - `/camera/camera_info` (`sensor_msgs/msg/CameraInfo`)
+- `/gray_object/sector` (`std_msgs/msg/Int32`)
+- `/gray_object/debug_image` (`sensor_msgs/msg/Image`, `bgr8`)
+
+The detector subscribes to the existing `/camera/image_raw` topic. It handles
+both the live camera's `bgr8` encoding and the package test source's `rgb8`
+encoding directly, without requiring OpenCV or `cv_bridge`.
 
 ## Raspberry Pi 5 setup
 
@@ -137,9 +143,10 @@ ros2 run camera_ros camera_node --ros-args \
 Press `Ctrl+C` to stop it before launching `dexter_camera`; only one process
 can own the camera.
 
-## Run and view
+## Run, detect, and view
 
-On a desktop session, this command starts the camera and opens an image window:
+On a desktop session, this command starts the camera and gray-object detector.
+It opens the annotated debug stream in `rqt_image_view`:
 
 ```bash
 ros2 launch dexter_camera camera.launch.py
@@ -148,19 +155,78 @@ ros2 launch dexter_camera camera.launch.py
 The launch file exposes Ubuntu's system PyQt5 package to the viewer even when
 the `dexter_ros2` Conda environment is active.
 
-To publish without opening a local GUI:
+Read the integer result:
+
+```bash
+ros2 topic echo /gray_object/sector
+```
+
+Sector numbering is zero-based so it follows the requested examples:
+
+- `0`: 8:00 to 8:30
+- `1`: 8:30 to 9:00
+- `2`: 9:00 to 9:30
+- continuing every 15 degrees through `14`: 3:00 to 3:30
+- `-1`: no sufficiently large gray object, or centroid outside 8:00 to 3:30
+
+To run without opening a local GUI:
 
 ```bash
 ros2 launch dexter_camera camera.launch.py view:=false
 ```
 
-You can then view the topic from another sourced terminal (or another ROS 2
+To show the unannotated camera stream initially, or disable processing:
+
+```bash
+ros2 launch dexter_camera camera.launch.py \
+  view_topic:=/camera/image_raw
+
+ros2 launch dexter_camera camera.launch.py \
+  detect_gray_object:=false view_topic:=/camera/image_raw
+```
+
+You can view the debug topic from another sourced terminal (or another ROS 2
 machine on the same DDS network):
 
 ```bash
 export PYTHONPATH=/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}
-ros2 run rqt_image_view rqt_image_view /camera/image_raw
+ros2 run rqt_image_view rqt_image_view /gray_object/debug_image
 ```
+
+The debug image retains normal camera colors in the valid area, shows excluded
+pixels in dark red with a bright red hatch, the selected gray connected region
+in green, its centroid in yellow, the image center in cyan, all purple radial
+boundaries, the selected pair of boundaries in yellow, and the sector number
+at top left.
+
+### Detection geometry and threshold tuning
+
+The proportional mask follows Figure 1:
+
+- frame dimensions: 20 by 11 units
+- valid width beside each side of the center stem: 7/20
+- top of excluded center stem: 3.4/11 down from the top
+- excluded bottom strip: 2/11 high
+
+The radial boundaries follow Figure 2 from 8:00 through 3:30 at 15-degree
+intervals. The centroid is the geometric, area-weighted center of the largest
+8-connected gray region in the valid mask.
+
+All tuning values are collected, with comments, in
+`config/gray_object_detector.yaml`. The corresponding defaults are also
+clearly marked near the top of
+`dexter_camera/gray_object_detector.py`. Initial intensity settings are:
+
+- black background: `0..45`
+- ignored dark transition: `46..54`
+- gray candidate: `55..220`
+- maximum difference between the brightest and darkest B/G/R channels: `30`
+
+Raise `black_max_intensity` if the black background creates detections. Adjust
+`gray_min_intensity` and `gray_max_intensity` around the real object brightness.
+Raise `gray_max_channel_spread` if lighting gives the gray object a color cast.
+After changing source configuration, rebuild `dexter_camera` and source the
+workspace again.
 
 Useful overrides:
 
@@ -178,6 +244,8 @@ Check the published stream:
 ```bash
 ros2 topic hz /camera/image_raw
 ros2 topic info /camera/image_raw
+ros2 topic info /gray_object/sector
+ros2 topic info /gray_object/debug_image
 ```
 
 ## Calibration

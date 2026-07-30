@@ -1,0 +1,33 @@
+gray_object_detector:
+  ros__parameters:
+    image_topic: /camera/image_raw
+    sector_topic: /gray_object/sector
+    debug_image_topic: /gray_object/debug_image
+    publish_debug_image: true
+
+    # EASY-TO-TUNE BLACK / GRAY THRESHOLDS
+    # Intensity is the average of B, G, and R: 0=black, 255=white.
+    # Black background is <= 45. Gray candidates are 45 through 220.
+    # The 46..54 gap rejects ambiguous very-dark pixels.
+    black_max_intensity: 45
+    gray_min_intensity: 55
+    gray_max_intensity: 225
+    # Gray has similar B/G/R values. Raise this if real gray pixels are
+    # rejected because of camera color cast; lower it to reject more color.
+    gray_max_channel_spread: 30
+
+    # One 3x3 majority pass removes isolated threshold noise.
+    denoise_minimum_neighbors: 5
+    # Smallest accepted connected region, as a fraction of the valid ROI.
+    min_object_area_fraction: 0.0005
+
+    # Figure 1 proportions: width=20, height=11, each valid side=7,
+    # center-stem top=3.4, and excluded bottom height=2.
+    side_valid_width_fraction: 0.35       # 7 / 20
+    stem_top_fraction: 0.3090909091       # 3.4 / 11
+    bottom_exclusion_fraction: 0.1818181818  # 2 / 11
+
+    # Figure 2 radial boundaries. Decimal .5 means the half-hour direction.
+    sector_start_clock: 8.0
+    sector_end_clock: 3.5
+    sector_step_degrees: 15.0
