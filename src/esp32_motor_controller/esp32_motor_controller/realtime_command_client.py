@@ -1,70 +1,42 @@
 #!/usr/bin/env python3
-"""
-Real-time Motor Command Client
+"""Publish one motor command through a short-lived ROS 2 client."""
 
-Publishes motor commands without waiting for subscribers.
-Ideal for real-time control applications.
-"""
+import sys
+import time
 
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
-import sys
-import time
 
 
 class RealtimeCommandClient(Node):
-    """Publishes motor commands with minimal latency."""
+    """Publish motor commands with minimal latency."""
 
     def __init__(self):
         super().__init__('realtime_command_client')
-        
-        # Create publisher with transient_local QoS for guaranteed delivery
-        # or use BEST_EFFORT for ultra-low latency
-        self.publisher = self.create_publisher(
-            String,
-            '/motor_command',
-            qos_profile=10
-        )
-        
-        self.get_logger().info('Real-time Command Client initialized')
-        self.get_logger().info('Usage: python3 realtime_command_client.py "servo1 90 15"')
+        self.publisher = self.create_publisher(String, '/motor_command', 10)
+        self.get_logger().info('Real-time command client initialized')
 
     def send_command(self, command: str):
-        """Send command immediately without waiting.
-        
-        Args:
-            command: Command string (e.g., "servo1 90 15")
-        """
-        msg = String()
-        msg.data = command
-        
-        # Publish immediately - no waiting for subscribers
-        self.publisher.publish(msg)
-        self.get_logger().info(f'Command sent (real-time): {command}')
-        
-        # Small delay to ensure message is processed
+        """Publish a command immediately and allow DDS to process it."""
+        message = String()
+        message.data = command
+        self.publisher.publish(message)
+        self.get_logger().info(f'Command sent: {command}')
         time.sleep(0.01)
 
 
 def main(args=None):
-    """Main entry point."""
+    """Run the one-shot command client."""
+    del args
     if len(sys.argv) < 2:
-        print("Usage: python3 realtime_command_client.py 'servo1 90 15'")
-        print("       python3 realtime_command_client.py 'servo2 180 30'")
-        sys.exit(1)
-    
-    rclpy.init(args=args)
-    
+        print("Usage: realtime_command_client 'servo1 90 15'")
+        raise SystemExit(1)
+
+    rclpy.init()
     client = RealtimeCommandClient()
-    command = sys.argv[1]
-    
-    # Send command and exit immediately
-    client.send_command(command)
-    
-    # Give it a moment to publish
+    client.send_command(sys.argv[1])
     time.sleep(0.1)
-    
     client.destroy_node()
     rclpy.shutdown()
 

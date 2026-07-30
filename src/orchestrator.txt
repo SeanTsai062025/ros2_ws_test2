@@ -1,0 +1,6 @@
+
+
+ros2 launch dexter_bringup robot_show.launch.py \
+  use_hardware:=false \
+  show_file:=/home/sean/dexter_test_2/ros2_ws/src/robot_show_orchestrator/config/first_show.yaml \
+  safety_confirmed:=false

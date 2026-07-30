@@ -1,0 +1,33 @@
+schema_version: "1.0"
+show:
+  id: robot_show
+  name: fira_show
+  version: 1
+  requirements:
+    # These are trusted assumptions, not sensor readings.
+    rail1_initial_state: TOP
+    rail2_initial_state: TOP
+  defaults:
+    on_failure: abort_show
+    command_timeout_s: 30.0
+  root:
+    id: show_root
+    type: sequence
+    children:
+      - id: screen_happy
+        type: action
+        target: screen
+        command: face
+        args:
+          face_type: HAPPY
+        timeout_s: 2.0
+      - id: hold_happy
+        type: delay
+        duration_s: 3.0
+      - id: screen_default
+        type: action
+        target: screen
+        command: face
+        args:
+          face_type: ANGRY
+        timeout_s: 2.0

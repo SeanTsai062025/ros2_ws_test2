@@ -10,6 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
 find_package(example_interfaces REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(dexter_interfaces REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rviz_common REQUIRED)
@@ -21,7 +22,14 @@ find_package(Qt5 REQUIRED COMPONENTS Widgets)
 set(CMAKE_AUTOMOC ON)
 
 add_executable(commander src/commander.cpp)
-ament_target_dependencies(commander rclcpp moveit_ros_planning_interface example_interfaces dexter_interfaces)
+ament_target_dependencies(
+  commander
+  rclcpp
+  moveit_ros_planning_interface
+  example_interfaces
+  std_msgs
+  dexter_interfaces
+)
 
 add_library(robot_pose_panel SHARED
   src/robot_pose_panel.cpp

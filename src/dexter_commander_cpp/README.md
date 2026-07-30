@@ -84,6 +84,19 @@ ros2 topic pub -1 /joint_command_legacy example_interfaces/msg/Float64MultiArray
   "{data: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}"
 ```
 
+## Correlated show execution
+
+`JointCommand` also carries optional `show_run_id`, `node_id`, `command_id`,
+and `attempt` fields. Commander copies them to
+`/arm_command_result` (`dexter_interfaces/msg/CommandResult`) only after
+planning and trajectory execution reaches a terminal result. A command
+received while the arm is active is returned as `REJECTED`.
+
+The show orchestrator cancels an exact active command on `/arm_cancel` using a
+`DeviceCommand` with matching run and command IDs. `/arm_stop`
+(`std_msgs/msg/Empty`) remains available as an uncorrelated emergency software
+stop. Neither interface replaces the physical E-stop.
+
 ## Pose command
 
 Position is in metres and roll, pitch, and yaw are degrees:

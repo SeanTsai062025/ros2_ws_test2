@@ -10,8 +10,11 @@ find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/CommandResult.msg"
+  "msg/DeviceCommand.msg"
   "msg/JointCommand.msg"
   "msg/PoseCommand.msg"
+  "msg/ShowState.msg"
 )
 
 ament_export_dependencies(rosidl_default_runtime)

@@ -12,6 +12,7 @@
   <depend>rclcpp</depend>
   <depend>moveit_ros_planning_interface</depend>
   <depend>example_interfaces</depend> 
+  <depend>std_msgs</depend>
   <depend>dexter_interfaces</depend>
   <depend>pluginlib</depend>
   <depend>rviz_common</depend>
