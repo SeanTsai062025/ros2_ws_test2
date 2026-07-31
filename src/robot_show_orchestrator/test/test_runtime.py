@@ -2,7 +2,7 @@ import asyncio
 import time
 
 from robot_show_orchestrator.runtime import ActionResult, WorkflowRuntime
-from robot_show_orchestrator.validation import validate_show
+from robot_show_orchestrator.validation import load_show, validate_show
 
 
 def action(node_id, target):
@@ -50,9 +50,9 @@ def test_sequence_waits_for_each_result():
     events = []
 
     async def dispatch(request):
-        events.append(('start', request.node_id))
+        events.append(('start', request.node_label))
         await asyncio.sleep(0.01)
-        events.append(('done', request.node_id))
+        events.append(('done', request.node_label))
         return ActionResult('SUCCEEDED', 'ok')
 
     runtime = WorkflowRuntime(document, dispatch, lambda request: None, lambda state: None)
@@ -88,9 +88,9 @@ def test_parallel_branches_run_concurrently_and_join():
     snapshots = []
 
     async def dispatch(request):
-        starts[request.node_id] = time.monotonic()
+        starts[request.node_label] = time.monotonic()
         await asyncio.sleep(0.03)
-        finishes[request.node_id] = time.monotonic()
+        finishes[request.node_label] = time.monotonic()
         return ActionResult('SUCCEEDED', 'ok')
 
     runtime = WorkflowRuntime(
@@ -102,7 +102,12 @@ def test_parallel_branches_run_concurrently_and_join():
     assert asyncio.run(runtime.run()) == 'SUCCEEDED'
     assert abs(starts['screen'] - starts['servo']) < 0.02
     after_time, _ = next(
-        item for item in snapshots if 'after' in item[1].active_node_ids
+        item
+        for item in snapshots
+        if any(
+            active.startswith('after [')
+            for active in item[1].active_node_ids
+        )
     )
     assert finishes['screen'] <= after_time
     assert finishes['servo'] <= after_time
@@ -138,8 +143,8 @@ def test_soft_pause_allows_active_action_to_finish_but_blocks_next():
     release_first = asyncio.Event()
 
     async def dispatch(request):
-        started.append(request.node_id)
-        if request.node_id == 'first':
+        started.append(request.node_label)
+        if request.node_label == 'first':
             first_started.set()
             await release_first.wait()
         return ActionResult('SUCCEEDED', 'ok')
@@ -158,3 +163,55 @@ def test_soft_pause_allows_active_action_to_finish_but_blocks_next():
 
     asyncio.run(scenario())
     assert started == ['first', 'second']
+
+
+def test_duplicate_labels_receive_unique_runtime_node_ids():
+    document = show({
+        'type': 'sequence',
+        'children': [
+            action('same', 'screen'),
+            action('same', 'screen'),
+        ],
+    })
+    validate_show(document)
+    requests = []
+
+    async def dispatch(request):
+        requests.append(request)
+        return ActionResult('SUCCEEDED', 'ok')
+
+    runtime = WorkflowRuntime(
+        document, dispatch, lambda request: None, lambda state: None
+    )
+    assert asyncio.run(runtime.run()) == 'SUCCEEDED'
+    assert [request.node_label for request in requests] == ['same', 'same']
+    assert requests[0].node_id != requests[1].node_id
+
+
+def test_runtime_failure_reports_yaml_file_line_and_operation(tmp_path):
+    show_file = tmp_path / 'runtime_failure.yaml'
+    show_file.write_text(
+        'schema_version: "1.0"\n'
+        'show:\n'
+        '  id: test\n'
+        '  defaults:\n'
+        '    on_failure: abort_show\n'
+        '  root:\n'
+        '    type: action\n'
+        '    target: screen\n'
+        '    command: face\n'
+        '    args: {face_type: HAPPY}\n',
+        encoding='utf-8',
+    )
+    document = load_show(str(show_file))
+
+    async def dispatch(request):
+        return ActionResult('FAILED', 'device did not respond')
+
+    runtime = WorkflowRuntime(
+        document, dispatch, lambda request: None, lambda state: None
+    )
+    assert asyncio.run(runtime.run()) == 'FAILED'
+    assert f'{show_file}:7' in runtime.detail
+    assert 'node "screen face"' in runtime.detail
+    assert 'device did not respond' in runtime.detail

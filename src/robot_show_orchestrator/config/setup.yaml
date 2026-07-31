@@ -1,0 +1,186 @@
+schema_version: "1.0"
+show:
+  id: robot_show
+  name: fira_show
+  version: 1
+  requirements:
+    # These are trusted assumptions, not sensor readings.
+    rail1_initial_state: TOP
+    rail2_initial_state: TOP
+  defaults:
+    on_failure: abort_show
+    command_timeout_s: 30.0
+  root:
+    id: show_root
+    type: sequence
+    children:
+      - id: down
+        type: parallel
+        join: all
+        branches:
+
+        - id: rail1_down
+          type: action
+          target: rail1
+          command: move
+          args: {steps: 16000, direction: low}
+          timeout_s: 10.0
+
+        - id: rail2_down
+          type: action
+          target: rail2
+          command: move
+          args: {steps: 16000, direction: low}
+          timeout_s: 10.0
+
+      - id: servo1_95
+        type: action
+        target: servo1
+        command: move_to
+        args: {target_degree: 95, step_delay_ms: 10}
+        timeout_s: 5.0
+
+      - id: up
+        type: parallel
+        join: all
+        branches:
+        
+        - id: rail1_up
+          type: action
+          target: rail1
+          command: move
+          args: {steps: 16000, direction: high}
+          timeout_s: 10.0
+
+        - id: rail2_up
+          type: action
+          target: rail2
+          command: move
+          args: {steps: 16000, direction: high}
+          timeout_s: 10.0
+
+      - id: servo1_0
+        type: action
+        target: servo1
+        command: move_to
+        args: {target_degree: 0, step_delay_ms: 10}
+        timeout_s: 5.0
+
+
+      - id: down
+        type: parallel
+        join: all
+        branches:
+
+        - id: rail1_down
+          type: action
+          target: rail1
+          command: move
+          args: {steps: 16000, direction: low}
+          timeout_s: 10.0
+
+        - id: rail2_down
+          type: action
+          target: rail2
+          command: move
+          args: {steps: 16000, direction: low}
+          timeout_s: 10.0
+
+      - id: servo1_95
+        type: action
+        target: servo1
+        command: move_to
+        args: {target_degree: 95, step_delay_ms: 10}
+        timeout_s: 5.0
+
+      - id: rail1_up
+        type: action
+        target: rail1
+        command: move
+        args: {steps: 16000, direction: high}
+        timeout_s: 10.0
+
+#==========================================    
+
+      - id: put_the_little_guy
+        type: action
+        target: screen
+        command: face
+        args:
+          face_type: CONFUSED
+        timeout_s: 2.0
+
+      - id: wait_for_put_little_guy
+        type: delay
+        duration_s: 2.0
+      
+      - id: put_the_little_guy
+        type: action
+        target: screen
+        command: face
+        args:
+          face_type: LOOK LEFT
+        timeout_s: 2.0
+
+      - id: wait_for_put_little_guy
+        type: delay
+        duration_s: 2.0
+      
+      - id: put_the_little_guy
+        type: action
+        target: screen
+        command: face
+        args:
+          face_type: CONFUSED
+        timeout_s: 2.0
+
+      - id: wait_for_put_little_guy
+        type: delay
+        duration_s: 2.0
+      
+      - id: put_the_little_guy
+        type: action
+        target: screen
+        command: face
+        args:
+          face_type: LOOK LEFT
+        timeout_s: 2.0
+#==========================================
+
+      - id: rail1_down
+        type: action
+        target: rail1
+        command: move
+        args: {steps: 16000, direction: low}
+        timeout_s: 10.0
+
+      - id: servo1_0
+        type: action
+        target: servo1
+        command: move_to
+        args: {target_degree: 0, step_delay_ms: 10}
+        timeout_s: 5.0
+
+      - id: up
+        type: parallel
+        join: all
+        branches:
+        - id: rail1_up
+          type: action
+          target: rail1
+          command: move
+          args: {steps: 16000, direction: high}
+          timeout_s: 10.0
+
+        - id: rail2_up
+          type: action
+          target: rail2
+          command: move
+          args: {steps: 16000, direction: high}
+          timeout_s: 10.0
+
+      
+
+
+
+

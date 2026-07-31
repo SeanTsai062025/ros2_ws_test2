@@ -40,12 +40,70 @@ class ShowValidationError(ValueError):
         super().__init__('; '.join(self.issues))
 
 
+class LocatedMapping(dict):
+    """YAML mapping that remembers where it was written."""
+
+    def __init__(
+        self,
+        *args,
+        source_file: str = '',
+        source_line: int = 0,
+        source_column: int = 0,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.source_file = source_file
+        self.source_line = source_line
+        self.source_column = source_column
+
+
+class _LocatedSafeLoader(yaml.SafeLoader):
+    """Safe YAML loader that attaches file and line metadata to mappings."""
+
+    def __init__(self, stream, source_file: str):
+        super().__init__(stream)
+        self.source_file = source_file
+
+
+def _construct_located_mapping(loader: _LocatedSafeLoader, node):
+    mapping = LocatedMapping(
+        source_file=loader.source_file,
+        source_line=node.start_mark.line + 1,
+        source_column=node.start_mark.column + 1,
+    )
+    yield mapping
+    mapping.update(loader.construct_mapping(node))
+
+
+_LocatedSafeLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_located_mapping,
+)
+
+
+def source_reference(value: Any, yaml_path: str = '') -> str:
+    """Return a human-readable source location for a loaded YAML mapping."""
+    source_file = getattr(value, 'source_file', '')
+    source_line = getattr(value, 'source_line', 0)
+    source_column = getattr(value, 'source_column', 0)
+    if source_file and source_line:
+        location = f'{source_file}:{source_line}'
+        if source_column and source_column != 1:
+            location += f':{source_column}'
+        return f'{location} ({yaml_path})' if yaml_path else location
+    return yaml_path
+
+
 def load_show(path: str) -> Dict[str, Any]:
     """Load and validate one YAML show file."""
-    show_path = Path(path).expanduser()
+    show_path = Path(path).expanduser().resolve()
     try:
         with show_path.open('r', encoding='utf-8') as stream:
-            document = yaml.safe_load(stream)
+            loader = _LocatedSafeLoader(stream, str(show_path))
+            try:
+                document = loader.get_single_data()
+            finally:
+                loader.dispose()
     except (OSError, yaml.YAMLError) as error:
         raise ShowValidationError([f'cannot load {show_path}: {error}']) from error
     validate_show(document)
@@ -93,7 +151,7 @@ def show_resources(document: Mapping[str, Any]) -> Set[str]:
 
 
 def validate_show(document: Any) -> None:
-    """Validate schema, arguments, IDs, resource conflicts, and rail transitions."""
+    """Validate schema, arguments, resource conflicts, and rail transitions."""
     issues: list[str] = []
     if not isinstance(document, Mapping):
         raise ShowValidationError(['YAML root must be a mapping'])
@@ -140,8 +198,6 @@ def validate_show(document: Any) -> None:
     if not isinstance(root, Mapping):
         raise ShowValidationError(issues + ['show.root must be a workflow node'])
 
-    ids: Set[str] = set()
-
     def validate_node(
         node: Any, path: str, states: MutableMapping[str, str | None]
     ) -> Set[str]:
@@ -149,36 +205,39 @@ def validate_show(document: Any) -> None:
             issues.append(f'{path} must be a mapping')
             return set()
 
+        node_path = source_reference(node, path)
         node_id = node.get('id')
-        if not isinstance(node_id, str) or not node_id.strip():
-            issues.append(f'{path}.id must be a non-empty string')
-            node_id = f'<invalid@{path}>'
-        elif node_id in ids:
-            issues.append(f'duplicate node id: {node_id}')
-        else:
-            ids.add(node_id)
+        if node_id is not None and (
+            not isinstance(node_id, str) or not node_id.strip()
+        ):
+            issues.append(f'{node_path}.id must be a non-empty string when provided')
 
         node_type = node.get('type')
         if node_type == 'action':
-            return validate_action(node, path, states)
+            return validate_action(node, node_path, states)
         if node_type == 'delay':
-            _require_number(node.get('duration_s'), f'{path}.duration_s', issues, 0.0)
+            _require_number(
+                node.get('duration_s'),
+                f'{node_path}.duration_s',
+                issues,
+                0.0,
+            )
             if node.get('duration_s') == 0:
-                issues.append(f'{path}.duration_s must be greater than zero')
+                issues.append(f'{node_path}.duration_s must be greater than zero')
             return set()
         if node_type not in {'sequence', 'parallel'}:
             issues.append(
-                f'{path}.type must be action, sequence, parallel, or delay'
+                f'{node_path}.type must be action, sequence, parallel, or delay'
             )
             return set()
 
         child_key = 'children' if node_type == 'sequence' else 'branches'
         children = node.get(child_key)
         if not isinstance(children, list) or not children:
-            issues.append(f'{path}.{child_key} must be a non-empty list')
+            issues.append(f'{node_path}.{child_key} must be a non-empty list')
             return set()
         if node_type == 'parallel' and node.get('join', 'all') != 'all':
-            issues.append(f'{path}.join must be all')
+            issues.append(f'{node_path}.join must be all')
 
         resources: Set[str] = set()
         if node_type == 'sequence':
@@ -199,7 +258,7 @@ def validate_show(document: Any) -> None:
                 overlap = used & previous
                 if overlap:
                     issues.append(
-                        f'{path} has parallel resource conflict between branches '
+                        f'{node_path} has parallel resource conflict between branches '
                         f'{previous_index} and {index}: {", ".join(sorted(overlap))}'
                     )
             branch_resources.append(used)

@@ -14,20 +14,51 @@ show:
     id: show_root
     type: sequence
     children:
-      - id: screen_happy
-        type: action
-        target: screen
-        command: face
-        args:
-          face_type: HAPPY
-        timeout_s: 2.0
-      - id: hold_happy
-        type: delay
-        duration_s: 3.0
-      - id: screen_default
+
+      - id: screen_ANGRY
         type: action
         target: screen
         command: face
         args:
           face_type: ANGRY
         timeout_s: 2.0
+      
+      - id: rail1_down
+        type: action
+        target: rail1
+        command: move
+        args: {steps: 16000, direction: low}
+        timeout_s: 10.0
+
+      - id: screen_default
+        type: action
+        target: screen
+        command: face
+        args:
+          face_type: DEFAULT
+        timeout_s: 2.0
+
+      - id: rail1_up
+        type: action
+        target: rail1
+        command: move
+        args: {steps: 16000, direction: high}
+        timeout_s: 10.0
+
+      - id: arm_move1
+        type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [0.0, 0.0, 0.0, 0.0, 0.0, -1.0]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      - id: arm_move2
+        type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+          speed_scaling: 0.7
+        timeout_s: 25.0

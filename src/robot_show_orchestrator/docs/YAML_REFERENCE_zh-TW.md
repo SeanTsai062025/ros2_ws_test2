@@ -8,8 +8,9 @@
 
 - 使用空白縮排，建議每層 2 個空白，不可使用 Tab。
 - `#` 後方是註解。
-- `id` 在同一份 YAML 中必須唯一。
-- 建議 `id` 使用容易閱讀的英文 snake_case，例如 `rail1_down`。
+- 每個 workflow node 的 `id` 都可以省略，也可以重複。
+- 若有填 `id`，它只作為錯誤訊息中的人類可讀標籤；建議使用容易閱讀的
+  英文 snake_case，例如 `rail1_down`。
 - 時間單位為秒；Servo 的 `step_delay_ms` 單位為毫秒。
 - node `type`、`target` 和 `command` 必須使用文件列出的拼字。
 - 有空白的字串建議加引號，例如 `face_type: "LOOK LEFT"`。
@@ -24,7 +25,6 @@ show:
     on_failure: abort_show
     command_timeout_s: 30.0
   root:
-    id: root
     type: delay
     duration_s: 1.0
 ```
@@ -72,15 +72,44 @@ show:
 - `parallel`
 - `delay`
 
-每個 node 都必須有：
+每個 node 只需要填 `type`；`id` 是選填的顯示標籤：
 
 ```yaml
-id: unique_node_id
 type: action
 ```
 
-`id` 由 YAML 作者填寫且全檔唯一。Orchestrator 會在每次開始表演時產生
-`show_run_id`，並在每次真正發出 Action 時產生新的 `command_id`。
+Orchestrator 每次開始表演時會產生 `show_run_id`，每次執行 node 時會產生
+內部唯一的 `node_id`，並在每次真正發出 Action 時產生新的
+`command_id`。因此作者不用為重複動作手動發明不同名稱。
+
+下面三個 node 都合法：
+
+```yaml
+- id: happy
+  type: action
+  target: screen
+  command: face
+  args: {face_type: HAPPY}
+- id: happy                 # id 重複也可以
+  type: action
+  target: screen
+  command: face
+  args: {face_type: HAPPY}
+- type: action              # id 完全省略也可以
+  target: screen
+  command: face
+  args: {face_type: HAPPY}
+```
+
+若 Action 失敗，狀態訊息會包含實際 YAML 檔案和行號，例如：
+
+```text
+/home/sean/shows/first_show.yaml:27: node "arm_move1" (arm joint_move)
+FAILED: execution failed (MoveIt code -4)
+```
+
+省略 `id` 時會以動作內容顯示，例如 `node "arm joint_move"`。同名 node
+仍可由不同的 YAML 行號辨認。
 
 ## 4. Action
 
@@ -101,7 +130,7 @@ Action 向一個裝置發出命令，等待該命令的正式完成結果。
 
 | 欄位 | 必要 | 說明 |
 |---|---:|---|
-| `id` | 是 | 全檔唯一。 |
+| `id` | 否 | 人類可讀標籤；可以重複。省略時由動作內容代替。 |
 | `type` | 是 | 固定為 `action`。 |
 | `target` | 是 | 裝置名稱。 |
 | `command` | 是 | 該裝置支援的語意命令。 |
@@ -340,7 +369,7 @@ Action 的失敗可能包含參數拒絕、裝置忙碌、MoveIt planning／exec
 Orchestrator 載入或開始表演時會檢查：
 
 - YAML 結構和 schema version。
-- 所有 node ID 唯一。
+- node 的 `id` 若有填寫，必須是非空字串；可以重複。
 - Action target、command 與參數範圍。
 - Rail 初始狀態和 TOP／BOTTOM 轉移是否合法。
 - Parallel branch 是否控制相同裝置。
@@ -365,9 +394,10 @@ robot_show_orchestrator/config/demo_show.yaml
 ## 11. 常見錯誤
 
 ```yaml
-# 錯誤：ID 重複
+# 合法：ID 可以重複，也可以不填
 - {id: action1, type: delay, duration_s: 1.0}
 - {id: action1, type: delay, duration_s: 1.0}
+- {type: delay, duration_s: 1.0}
 ```
 
 ```yaml

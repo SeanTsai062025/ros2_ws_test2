@@ -6,9 +6,12 @@ paths:
 - `/joint_command` → `dexter_commander_cpp` → MoveIt
 - `/device_command` → `uart_bridge_node` → ESP32
 
-Every action receives a generated `show_run_id` and `command_id`. Results are
-accepted only when both IDs match an in-flight action. Sequence, parallel
-(`join: all`), delay, timeout, soft pause, resume, and stop are supported.
+Every run/action receives generated `show_run_id`, internal `node_id`, and
+`command_id` values. YAML node `id` fields are optional display labels and may
+repeat. Results are accepted only when their correlation IDs match an in-flight
+action. Runtime and validation errors include the YAML file and line number.
+Sequence, parallel (`join: all`), delay, timeout, soft pause, resume, and stop
+are supported.
 
 The complete Traditional Chinese YAML authoring reference is available at
 [`docs/YAML_REFERENCE_zh-TW.md`](docs/YAML_REFERENCE_zh-TW.md).

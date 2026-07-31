@@ -8,6 +8,8 @@ import threading
 from typing import Any, Awaitable, Callable, Dict, Mapping
 import uuid
 
+from .validation import source_reference
+
 
 @dataclass(frozen=True)
 class ActionRequest:
@@ -21,6 +23,8 @@ class ActionRequest:
     command: str
     args: Mapping[str, Any]
     timeout_s: float
+    node_label: str
+    source_location: str
 
 
 @dataclass(frozen=True)
@@ -69,6 +73,8 @@ class WorkflowRuntime:
         self.show_run_id = str(uuid.uuid4())
         self.show = document['show']
         self.defaults = self.show.get('defaults', {})
+        self._runtime_node_ids: Dict[int, str] = {}
+        self._register_runtime_node_ids(self.show['root'])
 
         requirements = self.show.get('requirements', {})
         self.device_states: Dict[str, str] = {
@@ -86,6 +92,19 @@ class WorkflowRuntime:
         self._state_lock = threading.Lock()
         self._paused = threading.Event()
         self._stopped = threading.Event()
+
+    def _register_runtime_node_ids(self, node: Mapping[str, Any]) -> None:
+        """Assign an internal UUID to every workflow node."""
+        self._runtime_node_ids[id(node)] = str(uuid.uuid4())
+        node_type = node.get('type')
+        if node_type == 'sequence':
+            children = node.get('children', [])
+        elif node_type == 'parallel':
+            children = node.get('branches', [])
+        else:
+            return
+        for child in children:
+            self._register_runtime_node_ids(child)
 
     def pause(self) -> bool:
         """Soft-pause before the next not-yet-started node."""
@@ -122,7 +141,7 @@ class WorkflowRuntime:
         self.detail = 'show started'
         self._publish_state()
         try:
-            await self._execute_node(self.show['root'])
+            await self._execute_node(self.show['root'], 'show.root')
             if self._stopped.is_set():
                 raise WorkflowError('show stopped')
         except WorkflowError as error:
@@ -155,25 +174,38 @@ class WorkflowRuntime:
         if self._stopped.is_set():
             raise WorkflowError('show stopped')
 
-    async def _execute_node(self, node: Mapping[str, Any]) -> None:
+    async def _execute_node(
+        self, node: Mapping[str, Any], yaml_path: str
+    ) -> None:
         await self._wait_before_node()
         node_type = node['type']
         if node_type == 'action':
-            await self._execute_action(node)
+            await self._execute_action(node, yaml_path)
         elif node_type == 'delay':
-            await self._execute_delay(node)
+            await self._execute_delay(node, yaml_path)
         elif node_type == 'sequence':
-            for child in node['children']:
-                await self._execute_node(child)
+            for index, child in enumerate(node['children']):
+                await self._execute_node(
+                    child, f'{yaml_path}.children[{index}]'
+                )
         elif node_type == 'parallel':
-            await self._execute_parallel(node)
+            await self._execute_parallel(node, yaml_path)
         else:
-            raise WorkflowError(f'unsupported node type: {node_type}')
+            raise WorkflowError(
+                f'{self._node_context(node, yaml_path)}: '
+                f'unsupported node type {node_type}'
+            )
 
-    async def _execute_parallel(self, node: Mapping[str, Any]) -> None:
+    async def _execute_parallel(
+        self, node: Mapping[str, Any], yaml_path: str
+    ) -> None:
         tasks = [
-            asyncio.create_task(self._execute_node(branch))
-            for branch in node['branches']
+            asyncio.create_task(
+                self._execute_node(
+                    branch, f'{yaml_path}.branches[{index}]'
+                )
+            )
+            for index, branch in enumerate(node['branches'])
         ]
         done, pending = await asyncio.wait(
             tasks, return_when=asyncio.FIRST_EXCEPTION
@@ -197,10 +229,12 @@ class WorkflowRuntime:
         if pending:
             await asyncio.gather(*pending)
 
-    async def _execute_delay(self, node: Mapping[str, Any]) -> None:
-        node_id = node['id']
-        self._active_nodes.add(node_id)
-        self.detail = f'delay {node_id}'
+    async def _execute_delay(
+        self, node: Mapping[str, Any], yaml_path: str
+    ) -> None:
+        active_reference = self._active_reference(node, yaml_path)
+        self._active_nodes.add(active_reference)
+        self.detail = f'executing {self._node_context(node, yaml_path)}'
         self._publish_state()
         try:
             remaining = float(node['duration_s'])
@@ -211,13 +245,18 @@ class WorkflowRuntime:
                 await asyncio.sleep(interval)
                 remaining -= interval
         finally:
-            self._active_nodes.discard(node_id)
+            self._active_nodes.discard(active_reference)
             self._publish_state()
 
-    async def _execute_action(self, node: Mapping[str, Any]) -> None:
+    async def _execute_action(
+        self, node: Mapping[str, Any], yaml_path: str
+    ) -> None:
+        node_label = self._node_label(node)
+        location = source_reference(node, yaml_path)
+        node_context = self._node_context(node, yaml_path)
         request = ActionRequest(
             show_run_id=self.show_run_id,
-            node_id=node['id'],
+            node_id=self._runtime_node_ids[id(node)],
             command_id=str(uuid.uuid4()),
             attempt=1,
             target=node['target'],
@@ -229,13 +268,16 @@ class WorkflowRuntime:
                     self.defaults.get('command_timeout_s', 30.0),
                 )
             ),
+            node_label=node_label,
+            source_location=location,
         )
-        self._active_nodes.add(request.node_id)
+        active_reference = self._active_reference(node, yaml_path)
+        self._active_nodes.add(active_reference)
         with self._state_lock:
             self._active_requests[request.command_id] = request
         self.device_states[request.target] = self._busy_state(request)
         self.detail = (
-            f'executing node={request.node_id} command={request.command_id}'
+            f'executing {node_context}; command_id={request.command_id}'
         )
         self._publish_state()
 
@@ -247,7 +289,7 @@ class WorkflowRuntime:
             self.cancel_callback(request)
             self.device_states[request.target] = 'UNKNOWN'
             raise WorkflowError(
-                f'node {request.node_id} timed out after {request.timeout_s:.3f}s'
+                f'{node_context} timed out after {request.timeout_s:.3f}s'
             ) from error
         except asyncio.CancelledError:
             self.cancel_callback(request)
@@ -256,18 +298,44 @@ class WorkflowRuntime:
         finally:
             with self._state_lock:
                 self._active_requests.pop(request.command_id, None)
-            self._active_nodes.discard(request.node_id)
+            self._active_nodes.discard(active_reference)
             self._publish_state()
 
         if result.status != 'SUCCEEDED':
             if result.status != 'REJECTED':
                 self.device_states[request.target] = 'UNKNOWN'
             raise WorkflowError(
-                f'node {request.node_id} {result.status}: {result.detail}'
+                f'{node_context} {result.status}: {result.detail}'
             )
         self.device_states[request.target] = self._success_state(request)
-        self.detail = f'node {request.node_id} succeeded: {result.detail}'
+        self.detail = f'{node_context} succeeded: {result.detail}'
         self._publish_state()
+
+    @staticmethod
+    def _node_label(node: Mapping[str, Any]) -> str:
+        author_label = node.get('id')
+        if isinstance(author_label, str) and author_label.strip():
+            return author_label.strip()
+        node_type = str(node.get('type', 'node'))
+        if node_type == 'action':
+            return f'{node.get("target", "device")} {node.get("command", "command")}'
+        if node_type == 'delay':
+            return f'delay {node.get("duration_s", "?")}s'
+        return node_type
+
+    @classmethod
+    def _node_context(cls, node: Mapping[str, Any], yaml_path: str) -> str:
+        location = source_reference(node, yaml_path)
+        label = cls._node_label(node)
+        if node.get('type') == 'action':
+            operation = f'{node.get("target")} {node.get("command")}'
+            if label != operation:
+                return f'{location}: node "{label}" ({operation})'
+        return f'{location}: node "{label}"'
+
+    @classmethod
+    def _active_reference(cls, node: Mapping[str, Any], yaml_path: str) -> str:
+        return f'{cls._node_label(node)} [{source_reference(node, yaml_path)}]'
 
     def _cancel_active(self) -> None:
         with self._state_lock:
