@@ -190,11 +190,14 @@ ros2 launch dexter_bringup dexter.launch.xml use_hardware:=true
 ros2 launch dexter_camera camera.launch.py
 
 ros2 run dexter_commander_cpp commander
-ros2 run dexter_commander_cpp joint_command_cli
 
-0.0 0.0 0.0 0.0 0.0 0.0 0.5
 
 ros2 topic pub -1 /joint_command dexter_interfaces/msg/JointCommand "{positions: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], speed_scaling: 0.5}"
+
+ros2 topic pub -1 /joint_command dexter_interfaces/msg/JointCommand "{positions: , speed_scaling: 0.5}"
+
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state   moveit_msgs/msg/RobotState   "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}}"
+
 
 ros2 topic pub -1 /pose_command dexter_interfaces/msg/PoseCommand "{x: 0.0624, y: -0.0011, z: 0.31329, roll: 54.2, pitch: 88.2, yaw: 54.2, cartesian_path: false}"
 

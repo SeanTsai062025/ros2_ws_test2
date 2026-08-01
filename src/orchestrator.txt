@@ -42,6 +42,8 @@ ros2 topic echo --once /esp32/connected
 
 ros2 service call /show_orchestrator/reload \
   std_srvs/srv/Trigger {}
+  
+ros2 topic echo /show_orchestrator/state
 
 ros2 param set /show_orchestrator safety_confirmed true
 

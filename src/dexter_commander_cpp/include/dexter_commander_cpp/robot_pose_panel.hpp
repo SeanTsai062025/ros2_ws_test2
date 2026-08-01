@@ -32,8 +32,12 @@ private:
 
   std::unique_ptr<Impl> impl_;
 
+  QPlainTextEdit * joint_command_;
+  QPlainTextEdit * cartesian_command_;
   QPlainTextEdit * joint_values_;
   QPlainTextEdit * cartesian_values_;
+  QPushButton * copy_joint_command_button_;
+  QPushButton * copy_cartesian_command_button_;
   QPushButton * copy_joint_button_;
   QPushButton * copy_cartesian_button_;
   QLabel * status_label_;

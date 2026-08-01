@@ -94,6 +94,38 @@ RobotPosePanel::RobotPosePanel(QWidget * parent)
   panel_layout->addWidget(heading);
   panel_layout->addWidget(description);
 
+  auto * joint_command_group = new QGroupBox("Joint-space RViz goal command", this);
+  auto * joint_command_layout = new QVBoxLayout(joint_command_group);
+  joint_command_ = new QPlainTextEdit("Waiting for /joint_states...", joint_command_group);
+  joint_command_->setReadOnly(true);
+  joint_command_->setLineWrapMode(QPlainTextEdit::WidgetWidth);
+  joint_command_->setMinimumHeight(108);
+  joint_command_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+  copy_joint_command_button_ = new QPushButton("Copy joint-space command", joint_command_group);
+  copy_joint_command_button_->setEnabled(false);
+  joint_command_layout->addWidget(joint_command_);
+  joint_command_layout->addWidget(copy_joint_command_button_);
+  panel_layout->addWidget(joint_command_group);
+
+  auto * cartesian_command_group = new QGroupBox("Cartesian-space motion command", this);
+  auto * cartesian_command_layout = new QVBoxLayout(cartesian_command_group);
+  cartesian_command_ = new QPlainTextEdit(
+    "Waiting for base -> gripper_tip TF...", cartesian_command_group);
+  cartesian_command_->setReadOnly(true);
+  cartesian_command_->setLineWrapMode(QPlainTextEdit::WidgetWidth);
+  cartesian_command_->setMinimumHeight(108);
+  cartesian_command_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+  cartesian_command_->setToolTip(
+    "Publishing this /pose_command command requests planned robot motion.");
+  copy_cartesian_command_button_ = new QPushButton(
+    "Copy Cartesian command", cartesian_command_group);
+  copy_cartesian_command_button_->setEnabled(false);
+  copy_cartesian_command_button_->setToolTip(
+    "Publishing the copied /pose_command command requests planned robot motion.");
+  cartesian_command_layout->addWidget(cartesian_command_);
+  cartesian_command_layout->addWidget(copy_cartesian_command_button_);
+  panel_layout->addWidget(cartesian_command_group);
+
   auto * joint_group = new QGroupBox("Joint space (radians)", this);
   auto * joint_layout = new QVBoxLayout(joint_group);
   joint_values_ = new QPlainTextEdit("Waiting for /joint_states...", joint_group);
@@ -129,6 +161,12 @@ RobotPosePanel::RobotPosePanel(QWidget * parent)
   update_timer_->setInterval(100);
 
   connect(update_timer_, &QTimer::timeout, this, &RobotPosePanel::updateDisplay);
+  connect(copy_joint_command_button_, &QPushButton::clicked, this, [this]() {
+      copyText(joint_command_, copy_joint_command_button_, "Copy joint-space command");
+  });
+  connect(copy_cartesian_command_button_, &QPushButton::clicked, this, [this]() {
+      copyText(cartesian_command_, copy_cartesian_command_button_, "Copy Cartesian command");
+  });
   connect(copy_joint_button_, &QPushButton::clicked, this, [this]() {
       copyText(joint_values_, copy_joint_button_, "Copy joint values");
   });
@@ -212,7 +250,15 @@ void RobotPosePanel::updateDisplay()
       values.append(formatNumber(joint));
     }
     setTextIfChanged(joint_values_, "[" + values.join(", ") + "]");
+    const QString joint_command = QString(
+      "ros2 topic pub -1 /rviz/moveit/update_custom_goal_state "
+      "moveit_msgs/msg/RobotState "
+      "\"{joint_state: {name: [base, part1, part2, part3, part4, part5], "
+      "position: [%1]}}\"")
+      .arg(values.join(", "));
+    setTextIfChanged(joint_command_, joint_command);
     copy_joint_button_->setEnabled(true);
+    copy_joint_command_button_->setEnabled(true);
   }
 
   bool have_cartesian_pose = false;
@@ -229,16 +275,34 @@ void RobotPosePanel::updateDisplay()
       double yaw = 0.0;
       tf2::Matrix3x3(quaternion).getRPY(roll, pitch, yaw);
 
+      const QString x = formatNumber(translation.x);
+      const QString y = formatNumber(translation.y);
+      const QString z = formatNumber(translation.z);
+      const QString roll_degrees = formatNumber(roll * kRadiansToDegrees);
+      const QString pitch_degrees = formatNumber(pitch * kRadiansToDegrees);
+      const QString yaw_degrees = formatNumber(yaw * kRadiansToDegrees);
       const QString pose = QString(
         "{x: %1, y: %2, z: %3, roll: %4, pitch: %5, yaw: %6}")
-        .arg(formatNumber(translation.x))
-        .arg(formatNumber(translation.y))
-        .arg(formatNumber(translation.z))
-        .arg(formatNumber(roll * kRadiansToDegrees))
-        .arg(formatNumber(pitch * kRadiansToDegrees))
-        .arg(formatNumber(yaw * kRadiansToDegrees));
+        .arg(x)
+        .arg(y)
+        .arg(z)
+        .arg(roll_degrees)
+        .arg(pitch_degrees)
+        .arg(yaw_degrees);
       setTextIfChanged(cartesian_values_, pose);
+      const QString cartesian_command = QString(
+        "ros2 topic pub -1 /pose_command dexter_interfaces/msg/PoseCommand "
+        "\"{x: %1, y: %2, z: %3, roll: %4, pitch: %5, yaw: %6, "
+        "cartesian_path: false, speed_scaling: 0.5}\"")
+        .arg(x)
+        .arg(y)
+        .arg(z)
+        .arg(roll_degrees)
+        .arg(pitch_degrees)
+        .arg(yaw_degrees);
+      setTextIfChanged(cartesian_command_, cartesian_command);
       copy_cartesian_button_->setEnabled(true);
+      copy_cartesian_command_button_->setEnabled(true);
       have_cartesian_pose = true;
     } catch (const tf2::TransformException &) {
       // TF commonly takes a moment to become available during launch.

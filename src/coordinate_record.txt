@@ -4,13 +4,63 @@ servo2 5 -----> open gripper
 
 ===================
 first position:
-[-0.002915, -0.764127, -0.43914, 0.008526, -1.290717, -3.152714]
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [-0.003157, -0.769445, -0.265903, 0.004449, -1.042493, -3.154248]}}"
+
 on the cup
-[0.142711, -0.00836, -0.056502, 1.273025, -1.720756, -4.415564]
-gripper position
-[0.109948, -0.1371, -0.648299, 0.22446, -2.089103, -3.334107]
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [0.102355, -0.111111, -0.457906, 0.316716, -1.908272, -3.445704]}}"
+
+grip position
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [0.098916, -0.109833, -0.673328, 0.19254, -2.117597, -3.309947]}}"
+
 grip
 servo2 65 10
-pull up
-[0.11602, -0.01525, -0.073388, 1.138303, -1.699101, -4.277505]
 
+pull up
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [0.097996, -0.047413, -0.281843, 0.445928, -1.802069, -3.582612]}}"
+
+to the left
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [0.906787, -0.212648, -0.419263, 1.442402, -2.489152, -4.488811]}}"
+
+
+show the cup
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [0.87272, -0.36101, -0.698613, -0.600413, -0.714311, -5.406899]}}"
+
+to the left
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [0.906787, -0.212648, -0.419263, 1.442402, -2.489152, -4.488811]}}"
+
+position to place the cup left
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [0.765495, -0.191671, -0.979728, 0.964375, -2.592108, -3.79085]}}"
+
+open gripper
+ros2 topic pub --once /motor_command std_msgs/msg/String "data: 'servo2 5 10'"
+
+to the left
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [0.906787, -0.212648, -0.419263, 1.442402, -2.489152, -4.488811]}}"
+
+
+---------------
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [-0.025081, -0.084407, -0.157041, -0.004218, -0.066485, -0.617427]}}"
+
+before grip the double cup 
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [0.097344, -0.047017, -0.697591, -0.098149, -0.485236, -0.437568]}}"
+
+
+grip position
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [0.201603, 0.165593, -0.520147, -0.07955, -0.512733, -0.33901]}}"
+grip position up
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [0.20765, 0.280936, 0.174452, -0.068237, 0.065271, -0.370456]}}"
+
+move to middle
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [-0.203163, 0.217071, 0.00326, -0.131091, -0.082426, -0.773893]}}"
+
+open gripper position 
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [-0.215716, 0.144475, -0.523893, -0.153449, -0.533672, -0.720204]}}"
+
+move back
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [-0.590672, -0.086427, -0.676128, -0.195352, -0.509716, -1.079539]}}"
+
+up
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [-0.64642, -0.009933, -0.133469, -0.049471, -0.105538, -1.23217]}}"
+
+first position
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [-0.003157, -0.769445, -0.265903, 0.004449, -1.042493, -3.154248]}}"
