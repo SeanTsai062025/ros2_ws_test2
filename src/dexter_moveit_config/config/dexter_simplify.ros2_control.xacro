@@ -28,7 +28,7 @@
                     <param name="max_command_step_rad">${max_command_step_rad}</param>
                     <param name="configure_part5_driver">true</param>
                     <param name="part5_work_mode">4</param>
-                    <param name="part5_working_current_ma">1200</param>
+                    <param name="part5_working_current_ma">1000</param>
                     <param name="part5_subdivisions">128</param>
                 </xacro:if>
                 <xacro:unless value="${use_hardware}">

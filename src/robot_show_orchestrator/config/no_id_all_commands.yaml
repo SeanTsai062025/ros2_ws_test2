@@ -1,0 +1,254 @@
+schema_version: "1.0"
+
+show:
+  # show.id identifies the whole show and is still required.
+  # Workflow nodes below intentionally have no id fields.
+  id: no_id_all_commands
+  name: 無 node id 的完整指令範例
+  version: 1
+
+  requirements:
+    # These must match the real rail positions before starting the show.
+    rail1_initial_state: TOP
+    rail2_initial_state: TOP
+
+  defaults:
+    on_failure: abort_show
+    command_timeout_s: 30.0
+
+  root:
+    type: sequence
+    children:
+      # Screen command.
+      - type: action
+        target: screen
+        command: face
+        args:
+          face_type: DEFAULT
+        timeout_s: 2.0
+
+      # Delay workflow node.
+      - type: delay
+        duration_s: 1.0
+
+      # Parallel workflow node. Every branch uses a different device.
+      - type: parallel
+        join: all
+        branches:
+          # Arm command. These joint positions are placeholders only.
+          - type: action
+            target: arm
+            command: joint_move
+            args:
+              positions: [0.0, 0.0, 0.0, 0.0, 0.0, -0.3]
+              speed_scaling: 0.2
+            timeout_s: 25.0
+
+          # Rail 1: TOP -> BOTTOM.
+          - type: action
+            target: rail1
+            command: move
+            args:
+              steps: 16000
+              direction: low
+            timeout_s: 15.0
+
+          # Rail 2: TOP -> BOTTOM.
+          - type: action
+            target: rail2
+            command: move
+            args:
+              steps: 16000
+              direction: low
+            timeout_s: 15.0
+
+          # Servo 1 command.
+          - type: action
+            target: servo1
+            command: move_to
+            args:
+              target_degree: 30
+              step_delay_ms: 10
+            timeout_s: 5.0
+
+          # Servo 2 command.
+          - type: action
+            target: servo2
+            command: move_to
+            args:
+              target_degree: 150
+              step_delay_ms: 10
+            timeout_s: 5.0
+
+          # A Screen command can run alongside the other devices.
+          - type: action
+            target: screen
+            command: face
+            args:
+              face_type: HAPPY
+            timeout_s: 2.0
+
+      - type: delay
+        duration_s: 1.0
+
+      # Return rails, servos, arm, and screen together.
+      - type: parallel
+        join: all
+        branches:
+          # Arm command. Replace this with a reviewed safe pose.
+          - type: action
+            target: arm
+            command: joint_move
+            args:
+              positions: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+              speed_scaling: 0.2
+            timeout_s: 25.0
+
+          # Rail 1: BOTTOM -> TOP.
+          - type: action
+            target: rail1
+            command: move
+            args:
+              steps: 16000
+              direction: high
+            timeout_s: 15.0
+
+          # Rail 2: BOTTOM -> TOP.
+          - type: action
+            target: rail2
+            command: move
+            args:
+              steps: 16000
+              direction: high
+            timeout_s: 15.0
+
+          - type: action
+            target: servo1
+            command: move_to
+            args:
+              target_degree: 90
+              step_delay_ms: 10
+            timeout_s: 5.0
+
+          - type: action
+            target: servo2
+            command: move_to
+            args:
+              target_degree: 90
+              step_delay_ms: 10
+            timeout_s: 5.0
+
+          - type: action
+            target: screen
+            command: face
+            args:
+              face_type: DEFAULT
+            timeout_s: 2.0
+
+      # Nested Sequence example containing every supported face_type.
+      - type: sequence
+        children:
+          - type: action
+            target: screen
+            command: face
+            args: {face_type: DEFAULT}
+            timeout_s: 2.0
+
+          - type: action
+            target: screen
+            command: face
+            args: {face_type: HAPPY}
+            timeout_s: 2.0
+
+          - type: action
+            target: screen
+            command: face
+            args: {face_type: ANGRY}
+            timeout_s: 2.0
+
+          - type: action
+            target: screen
+            command: face
+            args: {face_type: TIRED}
+            timeout_s: 2.0
+
+          - type: action
+            target: screen
+            command: face
+            args: {face_type: "LOOK LEFT"}
+            timeout_s: 2.0
+
+          - type: action
+            target: screen
+            command: face
+            args: {face_type: "LOOK RIGHT"}
+            timeout_s: 2.0
+
+          - type: action
+            target: screen
+            command: face
+            args: {face_type: "LOOK UP"}
+            timeout_s: 2.0
+
+          - type: action
+            target: screen
+            command: face
+            args: {face_type: "LOOK DOWN"}
+            timeout_s: 2.0
+
+          - type: action
+            target: screen
+            command: face
+            args: {face_type: "LOOK CENTER"}
+            timeout_s: 2.0
+
+          - type: action
+            target: screen
+            command: face
+            args: {face_type: BLINK}
+            timeout_s: 2.0
+
+          - type: action
+            target: screen
+            command: face
+            args: {face_type: "WINK LEFT"}
+            timeout_s: 2.0
+
+          - type: action
+            target: screen
+            command: face
+            args: {face_type: "WINK RIGHT"}
+            timeout_s: 2.0
+
+          - type: action
+            target: screen
+            command: face
+            args: {face_type: LAUGH}
+            timeout_s: 2.0
+
+          - type: action
+            target: screen
+            command: face
+            args: {face_type: CONFUSED}
+            timeout_s: 2.0
+
+          - type: action
+            target: screen
+            command: face
+            args: {face_type: "IDLE ON"}
+            timeout_s: 2.0
+
+          - type: delay
+            duration_s: 2.0
+
+          - type: action
+            target: screen
+            command: face
+            args: {face_type: "IDLE OFF"}
+            timeout_s: 2.0
+
+          - type: action
+            target: screen
+            command: face
+            args: {face_type: DEFAULT}
+            timeout_s: 2.0

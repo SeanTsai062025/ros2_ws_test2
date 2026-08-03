@@ -1,35 +1,3 @@
-
-
-ros2 launch dexter_bringup robot_show.launch.py \
-  use_hardware:=false \
-  show_file:=/home/sean/dexter_test_2/ros2_ws/src/robot_show_orchestrator/config/first_show.yaml \
-  safety_confirmed:=false
-  
----------------------------
-  
-ros2 launch robot_show_orchestrator orchestrator.launch.py \
-  show_file:=/home/sean/dexter_test_2/ros2_ws/src/robot_show_orchestrator/config/first_show.yaml \
-  safety_confirmed:=false
-  
-  
-ros2 topic echo --once /esp32/connected
-
-ros2 service call /show_orchestrator/reload \
-  std_srvs/srv/Trigger {}
-這個是檢查文法
-  
-ros2 param set /show_orchestrator safety_confirmed true
-
-ros2 topic echo /show_orchestrator/state
-
-ros2 service call /show_orchestrator/start \
-  std_srvs/srv/Trigger {}
-  
-ros2 service call /show_orchestrator/stop \
-  std_srvs/srv/Trigger {}
-  
----------------
-
 ros2 launch dexter_bringup robot_show.launch.py \
   use_hardware:=true \
   use_rviz:=true \
@@ -50,7 +18,7 @@ ros2 param set /show_orchestrator safety_confirmed true
 ros2 service call /show_orchestrator/start \
   std_srvs/srv/Trigger {}
   
-  ros2 service call /show_orchestrator/pause \
+ros2 service call /show_orchestrator/pause \
   std_srvs/srv/Trigger {}
   
   ros2 service call /show_orchestrator/resume \
