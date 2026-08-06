@@ -11,7 +11,7 @@
        description="spawn JTC active; set false for passive encoder-only hardware checks" />
   <arg name="can_interface" default="can0" />
   <arg name="can_bitrate" default="1000000" />
-  <arg name="encoder_timeout_us" default="15000"
+  <arg name="encoder_timeout_us" default="16000"
        description="blocking deadline for one six-motor encoder batch before a bounded queued-frame drain" />
   <arg name="encoder_request_window" default="1"
        description="number of encoder requests allowed outstanding (1..6)" />

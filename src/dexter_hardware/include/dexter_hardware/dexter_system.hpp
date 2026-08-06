@@ -70,7 +70,7 @@ private:
   std::uint32_t can_bitrate_{1000000U};
   std::uint32_t encoder_request_window_{1U};
   std::chrono::microseconds encoder_request_spacing_{0};
-  std::chrono::microseconds encoder_batch_timeout_{15000};
+  std::chrono::microseconds encoder_batch_timeout_{16000};
   std::chrono::microseconds startup_quiet_period_{20000};
   std::chrono::microseconds startup_max_wait_{250000};
   std::uint16_t max_speed_field_{3000U};

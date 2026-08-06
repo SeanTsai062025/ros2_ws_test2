@@ -116,7 +116,7 @@ path and goal tolerances now expose excessive lag instead of hiding it.
 
 Hardware parameters are passed through the control xacro and bringup launch:
 
-- `encoder_timeout_us` (default 15000): fault ceiling for a complete six-motor
+- `encoder_timeout_us` (default 16000): fault ceiling for a complete six-motor
   encoder batch. Long-running production traces measured normal serialized
   batches around 9.8-12.4 ms. The 60 Hz controller period is 16.67 ms, leaving
   margin for the complete batch, controller update, and CAN writes. Frames
@@ -138,7 +138,7 @@ JTC tracking tolerances and its finite 2 second goal-time allowance are in
 `dexter_bringup/config/ros2_controllers.yaml`.
 
 Controller Manager hardware-execution diagnostics use warning/error means of
-12/15 ms and standard deviations of 1.5/3 ms. These reflect the measured USB-CAN
+12/16 ms and standard deviations of 1.5/3 ms. These reflect the measured USB-CAN
 batch latency while retaining margin inside each 16.67 ms control period.
 
 For dependable operation, controller manager must be allowed to use its

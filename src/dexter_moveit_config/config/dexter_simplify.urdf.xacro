@@ -4,7 +4,7 @@
     <xacro:arg name="use_hardware" default="false" />
     <xacro:arg name="can_interface" default="can0" />
     <xacro:arg name="can_bitrate" default="1000000" />
-    <xacro:arg name="encoder_timeout_us" default="15000" />
+    <xacro:arg name="encoder_timeout_us" default="16000" />
     <xacro:arg name="encoder_request_window" default="1" />
     <xacro:arg name="encoder_request_spacing_us" default="0" />
     <xacro:arg name="max_speed_field" default="3000" />

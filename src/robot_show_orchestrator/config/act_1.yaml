@@ -80,6 +80,9 @@ show:
           positions: [0.87272, -0.36101, -0.698613, -0.600413, -0.714311, -5.406899]
           speed_scaling: 0.7
         timeout_s: 25.0
+
+      - type: delay
+        duration_s: 3.0
       
       #to the left
       - type: action
@@ -198,6 +201,9 @@ show:
           speed_scaling: 0.7
         timeout_s: 25.0  
 
+      - type: delay
+        duration_s: 3.0
+
       #to the right
       - type: action
         target: arm
@@ -281,7 +287,7 @@ show:
           speed_scaling: 0.7
         timeout_s: 25.0
 
-      #open
+      #open(放little 到左邊的杯子上)
       - type: action
         target: servo2
         command: move_to
@@ -354,7 +360,7 @@ show:
           speed_scaling: 0.7
         timeout_s: 25.0
 
-      #open 
+      #open （用杯子蓋在左邊的杯子上 蓋住little）
       - type: action
         target: servo2
         command: move_to
@@ -371,7 +377,8 @@ show:
           positions: [0.903438, -0.070499, -0.124853, 1.537586, -2.500517, -4.656782]
           speed_scaling: 0.7
         timeout_s: 25.0
-      
+      #------------------------------------
+      #do magic motion
       #griper motion
       - type: action
         target: servo2
@@ -407,7 +414,7 @@ show:
           target_degree: 0
           step_delay_ms: 10
         timeout_s: 5.0
-
+      #------------------------------------
       #grip position
       - type: action
         target: arm
@@ -426,7 +433,7 @@ show:
           step_delay_ms: 10
         timeout_s: 5.0
 
-      #up
+      #up(第一次揭開疊在一起的杯子 把杯子放到中間)
       - type: action
         target: arm
         command: joint_move
@@ -453,7 +460,7 @@ show:
           speed_scaling: 0.7
         timeout_s: 25.0
 
-      #open gripper
+      #open gripper(放杯子到中間)
       - type: action
         target: servo2
         command: move_to
@@ -498,7 +505,7 @@ show:
           step_delay_ms: 10
         timeout_s: 5.0
 
-      #up
+      #up（揭開從rail1上來的little）
       - type: action
         target: arm
         command: joint_move
@@ -543,7 +550,7 @@ show:
           speed_scaling: 0.7
         timeout_s: 25.0
 
-      #on the top of the little
+      #on the top of the little（撿起放在地板的little從rail1上來的）
       - type: action
         target: arm
         command: joint_move
@@ -552,14 +559,12 @@ show:
           speed_scaling: 0.7
         timeout_s: 25.0
 
-      
-
       #grip position
       - type: action
         target: arm
         command: joint_move
         args:
-          positions: [1.069172, 0.399602, -0.709236, 1.614246, -3.169345, -3.624797]
+          positions: [1.072099, 0.342806, -0.791406, 1.617698, -3.169562, -3.605622]
           speed_scaling: 0.7
         timeout_s: 25.0
 
@@ -568,7 +573,7 @@ show:
         target: servo2
         command: move_to
         args:
-          target_degree: 100
+          target_degree: 105
           step_delay_ms: 10
         timeout_s: 5.0
 
@@ -581,7 +586,7 @@ show:
           speed_scaling: 0.7
         timeout_s: 25.0
 
-      #open position
+      #open position（放little 到中間那個杯子上）
       - type: action
         target: arm
         command: joint_move
@@ -662,7 +667,7 @@ show:
           speed_scaling: 0.7
         timeout_s: 25.0
 
-      #open
+      #open（第二次 把杯子蓋在中間的杯子上 蓋住little）
       - type: action
         target: servo2
         command: move_to
@@ -680,6 +685,8 @@ show:
           speed_scaling: 0.7
         timeout_s: 25.0
 
+      #------------------------------------
+      #do magic motion
       #gripper motion
       - type: action
         target: servo2
@@ -715,6 +722,7 @@ show:
           target_degree: 0
           step_delay_ms: 10
         timeout_s: 5.0
+      #------------------------------------
 
       #in the middle to grip position
       - type: action
@@ -770,7 +778,7 @@ show:
           speed_scaling: 0.7
         timeout_s: 25.0
 
-      #open
+      #open（這邊little掉落在rail1上面了 下一步 可以啟動rail1）
       - type: action
         target: servo2
         command: move_to
@@ -779,32 +787,67 @@ show:
           step_delay_ms: 10
         timeout_s: 5.0
 
-      #up
-      - type: action
-        target: arm
-        command: joint_move
-        args:
-          positions: [0.4503, -0.235734, -0.254436, 1.552069, -2.005079, -4.702035]
-          speed_scaling: 0.7
-        timeout_s: 25.0
+      - type: parallel
+        join: all
+        branches:
 
-      #on the top of the middle cup
-      - type: action
-        target: arm
-        command: joint_move
-        args:
-          positions: [0.019379, -0.401315, -0.718082, 0.010712, -1.878411, -3.168054]
-          speed_scaling: 0.7
-        timeout_s: 25.0
+          - type: sequence
+            children:
+              #up
+              - type: action
+                target: arm
+                command: joint_move
+                args:
+                  positions: [0.4503, -0.235734, -0.254436, 1.552069, -2.005079, -4.702035]
+                  speed_scaling: 0.7
+                timeout_s: 25.0
 
-      #grip position
-      - type: action
-        target: arm
-        command: joint_move
-        args:
-          positions: [-0.040842, -0.403999, -1.210336, -0.079038, -2.369719, -3.100559]
-          speed_scaling: 0.7
-        timeout_s: 25.0
+              #on the top of the middle cup
+              - type: action
+                target: arm
+                command: joint_move
+                args:
+                  positions: [0.019379, -0.401315, -0.718082, 0.010712, -1.878411, -3.168054]
+                  speed_scaling: 0.7
+                timeout_s: 25.0
+
+              #grip position
+              - type: action
+                target: arm
+                command: joint_move
+                args:
+                  positions: [-0.040842, -0.403999, -1.210336, -0.079038, -2.369719, -3.100559]
+                  speed_scaling: 0.7
+                timeout_s: 25.0
+
+          - type: sequence
+            children:
+              #rail1 low
+              - type: action
+                target: rail1
+                command: move
+                args:
+                  steps: 16000
+                  direction: low
+                timeout_s: 15.0
+
+              #servo1 0
+              - type: action
+                target: servo1
+                command: move_to
+                args:
+                  target_degree: 0
+                  step_delay_ms: 10
+                timeout_s: 5.0
+
+              #rail1 high
+              - type: action
+                target: rail1
+                command: move
+                args:
+                  steps: 16000
+                  direction: high
+                timeout_s: 15.0
 
       #grip
       - type: action
@@ -815,7 +858,7 @@ show:
           step_delay_ms: 10
         timeout_s: 5.0
 
-      #up
+      #up（第二次揭開 掉到中間的 little）
       - type: action
         target: arm
         command: joint_move
@@ -832,6 +875,9 @@ show:
           positions: [-1.038198, 0.215486, -0.066332, 0.475777, -0.352879, -1.883728]
           speed_scaling: 0.7
         timeout_s: 25.0
+
+      - type: delay
+        duration_s: 3.0
 
       #on the top of right
       - type: action
@@ -913,3 +959,6 @@ show:
           positions: [0.864871, 0.070141, -0.052884, -0.379967, -0.549497, -5.760098]
           speed_scaling: 0.7
         timeout_s: 25.0
+
+      - type: delay
+        duration_s: 3.0

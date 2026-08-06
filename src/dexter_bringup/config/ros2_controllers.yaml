@@ -3,7 +3,7 @@ controller_manager:
   ros__parameters:
     # Six serialized encoder transactions take about 9.8-12.4 ms on the
     # production USB-CAN path. A 60 Hz period is 16.67 ms, which contains the
-    # measured batch and the configured 15 ms fault timeout without continuously
+    # measured batch and the configured 16 ms fault timeout without continuously
     # overrunning the controller-manager deadline.
     update_rate: 60
 
@@ -15,7 +15,7 @@ controller_manager:
           execution_time:
             mean_error:
               warn: 12000.0
-              error: 15000.0
+              error: 16000.0
             standard_deviation:
               warn: 1500.0
               error: 3000.0
