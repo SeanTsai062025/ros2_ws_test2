@@ -32,6 +32,12 @@ show:
           speed_scaling: 0.7
         timeout_s: 25.0
 
+      - type: action
+        target: screen
+        command: face
+        args: {face_type: "LOOK UP"}
+        timeout_s: 2.0
+
       #open position
       - type: action
         target: arm
@@ -40,6 +46,7 @@ show:
           positions: [0.692874, -0.542952, -0.908948, -0.895589, -2.121751, -2.331651]
           speed_scaling: 0.7
         timeout_s: 25.0
+    
 
       #open griper(把杯子上道screen 頭上）
       - type: action
@@ -49,6 +56,12 @@ show:
           target_degree: 0
           step_delay_ms: 10
         timeout_s: 5.0
+      
+      - type: action
+        target: screen
+        command: face
+        args: {face_type: HAPPY}
+        timeout_s: 2.0
 
       #up
       - type: action
@@ -67,6 +80,12 @@ show:
           positions: [-0.695443, -0.254756, -0.703484, -1.11468, -2.385378, -2.21085]
           speed_scaling: 0.7
         timeout_s: 25.0
+
+      - type: action
+        target: screen
+        command: face
+        args: {face_type: DEFAULT}
+        timeout_s: 2.0
 
       #grip position
       - type: action
@@ -149,6 +168,12 @@ show:
           speed_scaling: 0.7
         timeout_s: 25.0
 
+      - type: action
+        target: screen
+        command: face
+        args: {face_type: "LOOK RIGHT"}
+        timeout_s: 2.0
+
       #grip (拿放在中間的little  這是從上面掉下來的 可能需要修改)
       - type: action
         target: servo2
@@ -209,6 +234,13 @@ show:
 
           - type: sequence
             children:
+
+              - type: action
+                target: screen
+                command: face
+                args: {face_type: "LOOK RIGHT"}
+                timeout_s: 2.0
+
               #grip(拿放在角落的big)
               - type: action
                 target: servo2
@@ -233,7 +265,7 @@ show:
             command: move_to
             args:
               target_degree: 95
-              step_delay_ms: 10
+              step_delay_ms: 20
             timeout_s: 5.0
 
       
@@ -430,7 +462,7 @@ show:
             command: move_to
             args:
               target_degree: 150
-              step_delay_ms: 10
+              step_delay_ms: 20
             timeout_s: 5.0
 
       #back to the up position
@@ -450,7 +482,7 @@ show:
         target: arm
         command: joint_move
         args:
-          positions: 
+          positions: [0.208251, -0.443972, -0.991028, 0.390794, -2.159321, -3.517034]
           speed_scaling: 0.7
         timeout_s: 25.0
 
@@ -481,8 +513,20 @@ show:
           speed_scaling: 0.7
         timeout_s: 25.0
 
+      - type: action
+        target: screen
+        command: face
+        args: {face_type: HAPPY}
+        timeout_s: 2.0
+
       - type: delay
         duration_s: 5.0
+
+      - type: action
+        target: screen
+        command: face
+        args: {face_type: DEFAULT}
+        timeout_s: 2.0
 
       #back to cover the big
       - type: action
@@ -496,13 +540,19 @@ show:
       - type: delay
         duration_s: 5.0
 
+      - type: action
+        target: screen
+        command: face
+        args: {face_type: CONFUSED}
+        timeout_s: 2.0
+
       #change the servo1 dir to 10
       - type: action
         target: servo1
         command: move_to
         args:
           target_degree: 10
-          step_delay_ms: 10
+          step_delay_ms: 20
         timeout_s: 5.0
 
       #up
@@ -514,6 +564,12 @@ show:
           speed_scaling: 0.7
         timeout_s: 25.0
 
+      - type: action
+        target: screen
+        command: face
+        args: {face_type: HAPPY}
+        timeout_s: 2.0
+
       #move the cup to the right
       - type: action
         target: arm
@@ -522,6 +578,12 @@ show:
           positions: [-0.655432, 0.269623, -0.069349, -1.151304, -2.29582, -2.158311]
           speed_scaling: 0.7
         timeout_s: 25.0
+
+      - type: action
+        target: screen
+        command: face
+        args: {face_type: DEFAULT}
+        timeout_s: 2.0
 
       #open position
       - type: action
@@ -835,12 +897,18 @@ show:
             children:
               #to the middle (start to do the magic gesture)
               
+              - type: action
+                target: screen
+                command: face
+                args: {face_type: ANGRY}
+                timeout_s: 2.0
+
               #gesture1
               - type: action
                 target: arm
                 command: joint_move
                 args:
-                  positions: 
+                  positions: [0.154472, -0.38113, -0.732361, 0.384058, -1.954675, -3.568806]
                   speed_scaling: 0.7
                 timeout_s: 25.0
 
@@ -849,16 +917,25 @@ show:
                 target: arm
                 command: joint_move
                 args:
-                  positions: 
+                  positions: [0.742881, -0.238879, -0.799843, 1.027269, -2.463075, -3.971476]
                   speed_scaling: 0.7
                 timeout_s: 25.0
+
+              #grip gesture
+              - type: action
+                target: servo2
+                command: move_to
+                args:
+                  target_degree: 100
+                  step_delay_ms: 10
+                timeout_s: 5.0
 
               #gesture3
               - type: action
                 target: arm
                 command: joint_move
                 args:
-                  positions: 
+                  positions: [0.086159, -0.291418, -0.36565, 0.733013, -1.679441, -3.887107]
                   speed_scaling: 0.7
                 timeout_s: 25.0
 
@@ -867,21 +944,408 @@ show:
                 target: arm
                 command: joint_move
                 args:
-                  positions: 
+                  positions: [-0.626312, -0.285845, -0.82385, -0.960898, -2.386529, -2.371151]
                   speed_scaling: 0.7
                 timeout_s: 25.0
+
+              #open gesture
+              - type: action
+                target: servo2
+                command: move_to
+                args:
+                  target_degree: 0
+                  step_delay_ms: 10
+                timeout_s: 5.0
+
+              - type: action
+                target: screen
+                command: face
+                args: {face_type: DEFAULT}
+                timeout_s: 2.0
           
           #desk motion
           - type: sequence
             children:
-              #change the servo1 dir to 
+              #change the servo1 dir to 0
               - type: action
                 target: servo1
                 command: move_to
                 args:
-                  target_degree: 10
-                  step_delay_ms: 10
+                  target_degree: 0
+                  step_delay_ms: 20
                 timeout_s: 5.0
+              
+              #rail2 low
+              - type: action
+                target: rail2
+                command: move
+                args:
+                  steps: 16000
+                  direction: low
+                timeout_s: 15.0
+
+              #change the servo1 dir to 95
+              - type: action
+                target: servo1
+                command: move_to
+                args:
+                  target_degree: 95
+                  step_delay_ms: 20
+                timeout_s: 5.0
+
+              - type: parallel
+                join: all
+                branches:
+                  #rail2 high
+                  - type: action
+                    target: rail2
+                    command: move
+                    args:
+                      steps: 16000
+                      direction: high
+                    timeout_s: 15.0
+
+                  #rail1 low
+                  - type: action
+                    target: rail1
+                    command: move
+                    args:
+                      steps: 16000
+                      direction: low
+                    timeout_s: 15.0
+
+              #change the servo1 dir to 0
+              - type: action
+                target: servo1
+                command: move_to
+                args:
+                  target_degree: 0
+                  step_delay_ms: 20
+                timeout_s: 5.0
+
+              #rail1 high
+              - type: action
+                target: rail1
+                command: move
+                args:
+                  steps: 16000
+                  direction: high
+                timeout_s: 15.0
+      
+      #-----------------------------
+      #finish all the set up, start to reveal the cup
+      #-----------------------------
+
+      #to the middle top
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [0.115049, -0.252135, -0.246575, 1.558294, -1.672244, -4.738083]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      #to the rail1 top
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [0.871276, -0.276743, -0.738612, 1.195802, -2.519691, -4.159389]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      #grip position
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [0.855322, -0.255638, -1.129381, 0.966318, -2.705482, -3.729874]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      #grip the cup on the rail1(揭開小枝的不見了)
+      - type: action
+        target: servo2
+        command: move_to
+        args:
+          target_degree: 40
+          step_delay_ms: 10
+        timeout_s: 5.0
+
+      #up
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [0.876619, -0.253784, -0.597192, 1.282497, -2.485535, -4.300515]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      - type: action
+        target: screen
+        command: face
+        args: {face_type: HAPPY}
+        timeout_s: 2.0
+
+      #show the cup
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [0.334229, -0.105678, -0.16374, 0.006136, -0.393875, -0.02301]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      #on the top of the left side prepare to place the cup
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [1.07091, 0.083474, -0.493801, 1.266365, -2.721205, -4.114903]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+      
+      - type: action
+        target: screen
+        command: face
+        args: {face_type: DEFAULT}
+        timeout_s: 2.0
+
+      #open position
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [1.065516, 0.096973, -0.707485, 1.175835, -2.795591, -3.882122]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      #open
+      - type: action
+        target: servo2
+        command: move_to
+        args:
+          target_degree: 0
+          step_delay_ms: 10
+        timeout_s: 5.0
+
+      #up
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [1.073582, 0.094276, -0.368079, 1.319709, -2.692021, -4.233787]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      #to the right on the top of the rail2
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [-0.634659, -0.268242, -0.629482, -1.125942, -2.303566, -2.173267]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      #grip position
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [-0.66452, -0.234456, -1.121455, -0.801109, -2.633231, -2.711311]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      #grip the cup on the rail2(準備揭開big的杯子)
+      - type: action
+        target: servo2
+        command: move_to
+        args:
+          target_degree: 40
+          step_delay_ms: 10
+        timeout_s: 5.0
+
+      #up
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [-0.644234, -0.265328, -0.634953, -1.12529, -2.315339, -2.180937]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      - type: action
+        target: screen
+        command: face
+        args: {face_type: HAPPY}
+        timeout_s: 2.0
+
+      #show the cup
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [-0.851692, 0.216381, 0.200517, 0.334881, -0.210948, -1.244058]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      #top of the place to place the cup
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [-1.474629, -0.022307, -0.416476, -1.532907, -3.06832, -2.008364]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      - type: action
+        target: screen
+        command: face
+        args: {face_type: DEFAULT}
+        timeout_s: 2.0
+
+      #open position
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [-1.402046, -0.037429, -0.873781, -1.450826, -3.043022, -2.461272]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      #open
+      - type: action
+        target: servo2
+        command: move_to
+        args:
+          target_degree: 0
+          step_delay_ms: 10
+        timeout_s: 5.0
+
+      #up
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [-1.4011, -0.059812, -0.396393, -1.51239, -2.996606, -2.097719]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      #to the top to grip the dubble guy
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [-0.884698, 0.080905, -0.231836, -1.499914, -2.885929, -1.944321]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      #grip position
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [-0.903387, 0.192042, -0.904205, -1.356576, -3.018695, -2.731636]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      #grip both guys
+      - type: action
+        target: servo2
+        command: move_to
+        args:
+          target_degree: 65
+          step_delay_ms: 10
+        timeout_s: 5.0
+
+      #倒出來前
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [-0.050327, -0.602381, -1.134673, -0.330496, -2.131211, -2.916481]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      #倒出來
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [0.08846, 0.158358, -0.149998, -0.026832, -1.136923, -3.18953]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      #to the top to place the big
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [-0.486489, -0.236386, -0.929388, -0.7488, -2.367073, -2.651102]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      #open position
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [-0.519892, -0.15166, -1.197873, -0.622515, -2.655807, -2.909195]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      #open
+      - type: action
+        target: servo2
+        command: move_to
+        args:
+          target_degree: 0
+          step_delay_ms: 10
+        timeout_s: 5.0
+
+      #up
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [-0.526577, -0.193576, -0.585917, -1.070207, -2.207092, -2.229258]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      #to the middle
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [-0.195608, -0.32413, -0.002275, 0.552259, -1.14651, -3.717219]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      #home
+      - type: action
+        target: arm
+        command: joint_move
+        args:
+          positions: [0.000064, 0.000064, -0.000064, -0.000013, -0.000077, -0.004985]
+          speed_scaling: 0.7
+        timeout_s: 25.0
+
+      - type: action
+        target: screen
+        command: face
+        args: {face_type: HAPPY}
+        timeout_s: 2.0
+
+      - type: delay
+        duration_s: 3.0
+
+      - type: action
+        target: screen
+        command: face
+        args: {face_type: "WINK RIGHT"}
+        timeout_s: 2.0
+
+              
 
 
 
