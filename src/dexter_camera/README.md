@@ -11,6 +11,7 @@ launch configuration publishes the camera stream plus gray-object detection:
 - `/camera/image_raw` (`sensor_msgs/msg/Image`, `bgr8`)
 - `/camera/camera_info` (`sensor_msgs/msg/CameraInfo`)
 - `/gray_object/sector` (`std_msgs/msg/Int32`)
+- `/gray_object/candidate_area` (`std_msgs/msg/Int32`, pixels)
 - `/gray_object/debug_image` (`sensor_msgs/msg/Image`, `bgr8`)
 
 The detector subscribes to the existing `/camera/image_raw` topic. It handles
@@ -146,28 +147,54 @@ can own the camera.
 ## Run, detect, and view
 
 On a desktop session, this command starts the camera and gray-object detector.
-It opens the annotated debug stream in `rqt_image_view`:
+It opens the annotated debug stream in the live RGB threshold tuner:
 
 ```bash
 ros2 launch dexter_camera camera.launch.py
 ```
 
-The launch file exposes Ubuntu's system PyQt5 package to the viewer even when
-the `dexter_ros2` Conda environment is active.
+The detector and tuner flip both image axes by default (a 180-degree view), so
+the displayed orientation, object coordinates, sections, and click-to-sample
+positions all agree. Each axis can be restored independently with
+`flip_vertical:=false` or `flip_horizontal:=false`; use both options to keep
+the camera's original orientation.
 
-Read the integer result:
+The image is on the left and six draggable bars set independent `R min/max`,
+`G min/max`, and `B min/max` ranges on the right. Matching pixels are tinted
+green immediately. Click the image to lock a pixel and retain its coordinates
+and R/G/B values while moving the mouse to the controls. The locked color can
+also fill all six limits automatically using the selected tolerance. No
+rebuild or restart is needed while tuning. The launch file exposes Ubuntu's
+system PyQt5 package even when the `dexter_ros2` Conda environment is active.
+
+The area panel shows and tunes the `little guy` candidate in pixels. All three
+named classes have independent `target ± tolerance` ranges. Thirty
+uncompressed 1280x720 camera frames measured `cup` at 93212..93441 px,
+`big guy` at 33670..34016 px, and `little guy` at 15803..15913 px. The current
+targets/tolerances are 93300±4000, 33850±3000, and 15850±1500. Parameter
+updates are rejected if any two inclusive ranges would overlap.
+
+Area matching is evaluated for every same-color connected object. Every region
+inside any named range is boxed, including multiple objects in the same range;
+objects outside those ranges cannot hide a valid target.
+
+Read the original integer result (kept as the `little guy` sector):
 
 ```bash
 ros2 topic echo /gray_object/sector
 ```
 
-Sector numbering is zero-based so it follows the requested examples:
+The full image is divided clockwise into 24 sections of 15 degrees each:
 
-- `0`: 8:00 to 8:30
-- `1`: 8:30 to 9:00
-- `2`: 9:00 to 9:30
-- continuing every 15 degrees through `14`: 3:00 to 3:30
-- `-1`: no sufficiently large gray object, or centroid outside 8:00 to 3:30
+- `0`: 12:00 to 12:30
+- `6`: 3:00 to 3:30
+- `12`: 6:00 to 6:30
+- `18`: 9:00 to 9:30
+- `23`: 11:30 to 12:00
+- `-1`: no object satisfying both the RGB and area rules
+
+The wedge interiors are intentionally not numbered. Only the `little guy`
+section number is shown at the top left.
 
 To run without opening a local GUI:
 
@@ -175,14 +202,20 @@ To run without opening a local GUI:
 ros2 launch dexter_camera camera.launch.py view:=false
 ```
 
+To use the original `rqt_image_view` window without tuning controls:
+
+```bash
+ros2 launch dexter_camera camera.launch.py viewer:=rqt
+```
+
 To show the unannotated camera stream initially, or disable processing:
 
 ```bash
 ros2 launch dexter_camera camera.launch.py \
-  view_topic:=/camera/image_raw
+  viewer:=rqt view_topic:=/camera/image_raw
 
 ros2 launch dexter_camera camera.launch.py \
-  detect_gray_object:=false view_topic:=/camera/image_raw
+  detect_gray_object:=false viewer:=rqt view_topic:=/camera/image_raw
 ```
 
 You can view the debug topic from another sourced terminal (or another ROS 2
@@ -193,40 +226,43 @@ export PYTHONPATH=/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}
 ros2 run rqt_image_view rqt_image_view /gray_object/debug_image
 ```
 
-The debug image retains normal camera colors in the valid area, shows excluded
-pixels in dark red with a bright red hatch, the selected gray connected region
-in green, its centroid in yellow, the image center in cyan, all purple radial
-boundaries, the selected pair of boundaries in yellow, and the sector number
+The debug image retains normal camera colors in the valid area, tints every
+pixel matching the current RGB ranges green, shows each classified region in
+solid green, and draws its centroid, yellow bounding box, object name, and
+integer centroid pixel `X/Y`. The image center is cyan, all radial boundaries
+use a subdued creamy purple, and only the `little guy` section number appears
 at top left.
+The full image is valid for detection; there is no red exclusion mask. If
+color matches but no named area range matches, pixels remain tinted green but
+no named box is produced.
 
 ### Detection geometry and threshold tuning
 
-The proportional mask follows Figure 1:
+All camera pixels always participate in color and area detection. The older
+proportional T-shaped exclusion mask and its parameters have been removed, so
+no launch-time setting can reactivate the former center or bottom exclusion.
 
-- frame dimensions: 20 by 11 units
-- valid width beside each side of the center stem: 7/20
-- top of excluded center stem: 3.4/11 down from the top
-- excluded bottom strip: 2/11 high
-
-The radial boundaries follow Figure 2 from 8:00 through 3:30 at 15-degree
-intervals. The centroid is the geometric, area-weighted center of the largest
-8-connected gray region in the valid mask.
+Radial boundaries cover the complete 360-degree image at 15-degree intervals.
+Each centroid is the geometric, area-weighted center of its 8-connected color
+region in the full image.
 
 All tuning values are collected, with comments, in
 `config/gray_object_detector.yaml`. The corresponding defaults are also
 clearly marked near the top of
-`dexter_camera/gray_object_detector.py`. Initial intensity settings are:
+`dexter_camera/gray_object_detector.py`. Direct RGB tuning is enabled by
+default. Initial inclusive ranges are:
 
-- black background: `0..45`
-- ignored dark transition: `46..54`
-- gray candidate: `55..220`
-- maximum difference between the brightest and darkest B/G/R channels: `30`
+- red: `55..225`
+- green: `55..225`
+- blue: `55..225`
 
-Raise `black_max_intensity` if the black background creates detections. Adjust
-`gray_min_intensity` and `gray_max_intensity` around the real object brightness.
-Raise `gray_max_channel_spread` if lighting gives the gray object a color cast.
-After changing source configuration, rebuild `dexter_camera` and source the
-workspace again.
+Click the target color, select a tolerance, and press the apply button for a
+quick starting range; then fine-tune any of the six limits. The GUI publishes
+changes on `/gray_object/rgb_thresholds` immediately and also synchronizes the
+detector parameters. To preserve chosen values for future launches, copy them
+into
+`config/gray_object_detector.yaml`; source configuration changes still require
+rebuilding `dexter_camera` and sourcing the workspace again.
 
 Useful overrides:
 

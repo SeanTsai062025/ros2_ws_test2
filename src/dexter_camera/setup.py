@@ -60,6 +60,10 @@ setup(
                 'gray_object_detector = '
                 'dexter_camera.gray_object_detector:main'
             ),
+            (
+                'color_threshold_tuner = '
+                'dexter_camera.color_threshold_tuner:main'
+            ),
         ],
     },
 )

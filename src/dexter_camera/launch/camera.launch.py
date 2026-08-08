@@ -51,6 +51,13 @@ def _launch_setup(
     )
     view = _as_bool(LaunchConfiguration('view').perform(context))
     view_topic = LaunchConfiguration('view_topic').perform(context)
+    viewer = LaunchConfiguration('viewer').perform(context)
+    flip_vertical = _as_bool(
+        LaunchConfiguration('flip_vertical').perform(context)
+    )
+    flip_horizontal = _as_bool(
+        LaunchConfiguration('flip_horizontal').perform(context)
+    )
 
     if width <= 0 or height <= 0:
         raise RuntimeError('width and height must be positive')
@@ -119,20 +126,54 @@ def _launch_setup(
             executable='gray_object_detector',
             name='gray_object_detector',
             output='screen',
-            parameters=[detector_config_file],
+            parameters=[
+                detector_config_file,
+                {
+                    'flip_vertical': flip_vertical,
+                    'flip_horizontal': flip_horizontal,
+                },
+            ],
         ))
 
     if view:
-        nodes.append(Node(
-            package='rqt_image_view',
-            executable='rqt_image_view',
-            name='camera_view',
-            arguments=[view_topic],
-            output='screen',
-            # The Dexter Conda environment hides Ubuntu's PyQt5 package.
-            # Preserve the ROS path while exposing the system Qt bindings.
-            additional_env={'PYTHONPATH': system_python_path},
-        ))
+        if viewer == 'tuner':
+            if not detect_gray_object:
+                raise RuntimeError(
+                    'viewer="tuner" requires detect_gray_object:=true'
+                )
+            nodes.append(Node(
+                package='dexter_camera',
+                executable='color_threshold_tuner',
+                name='color_threshold_tuner',
+                output='screen',
+                parameters=[{
+                    'debug_image_topic': view_topic,
+                    'raw_image_topic': '/camera/image_raw',
+                    'flip_vertical': flip_vertical,
+                    'flip_horizontal': flip_horizontal,
+                    'sector_topic': '/gray_object/sector',
+                    'rgb_threshold_topic': '/gray_object/rgb_thresholds',
+                    'area_threshold_topic': '/gray_object/area_thresholds',
+                    'candidate_area_topic': '/gray_object/candidate_area',
+                    'detector_node': '/gray_object_detector',
+                }],
+                # The Dexter Conda environment hides Ubuntu's PyQt5 package.
+                # Preserve the ROS path while exposing system Qt bindings.
+                additional_env={'PYTHONPATH': system_python_path},
+            ))
+        elif viewer == 'rqt':
+            nodes.append(Node(
+                package='rqt_image_view',
+                executable='rqt_image_view',
+                name='camera_view',
+                arguments=[view_topic],
+                output='screen',
+                additional_env={'PYTHONPATH': system_python_path},
+            ))
+        else:
+            raise RuntimeError(
+                f'Unsupported viewer {viewer!r}; use "tuner" or "rqt"'
+            )
 
     return nodes
 
@@ -189,7 +230,22 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'view_topic',
             default_value='/gray_object/debug_image',
-            description='Image topic initially displayed by rqt_image_view',
+            description='Image topic displayed by the selected viewer',
+        ),
+        DeclareLaunchArgument(
+            'viewer',
+            default_value='tuner',
+            description='GUI viewer: tuner or rqt',
+        ),
+        DeclareLaunchArgument(
+            'flip_vertical',
+            default_value='true',
+            description='Swap the top and bottom before detection/display',
+        ),
+        DeclareLaunchArgument(
+            'flip_horizontal',
+            default_value='true',
+            description='Swap the left and right before detection/display',
         ),
         OpaqueFunction(
             function=_launch_setup,

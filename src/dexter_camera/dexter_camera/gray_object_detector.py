@@ -21,6 +21,7 @@ import math
 
 import numpy as np
 import rclpy
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.logging import get_logger
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy
@@ -30,6 +31,7 @@ from rclpy.qos import QoSProfile
 from rclpy.qos import ReliabilityPolicy
 from sensor_msgs.msg import Image
 from std_msgs.msg import Int32
+from std_msgs.msg import Int32MultiArray
 
 
 # ---------------------------------------------------------------------------
@@ -46,27 +48,124 @@ from std_msgs.msg import Int32
 # pixels.
 DEFAULT_BLACK_MAX_INTENSITY = 45
 DEFAULT_GRAY_MIN_INTENSITY = 55
-DEFAULT_GRAY_MAX_INTENSITY = 220
+DEFAULT_GRAY_MAX_INTENSITY = 225
 DEFAULT_GRAY_MAX_CHANNEL_SPREAD = 30
 
+# Direct per-channel RGB mode used by the live tuner. The detector receives
+# BGR images, but all public names and GUI controls use the familiar R/G/B
+# order.
+DEFAULT_RED_MIN = 55
+DEFAULT_RED_MAX = 225
+DEFAULT_GREEN_MIN = 55
+DEFAULT_GREEN_MAX = 225
+DEFAULT_BLUE_MIN = 55
+DEFAULT_BLUE_MAX = 225
 
-# Figure 1 gives a 20-wide by 11-high frame. Each side of the center stem is
-# 7 units wide, the stem starts 3.4 units below the top, and the excluded
-# bottom strip is 2 units high. Fractions keep the ROI correct at any camera
-# resolution.
-DEFAULT_SIDE_VALID_WIDTH_FRACTION = 7.0 / 20.0
-DEFAULT_STEM_TOP_FRACTION = 3.4 / 11.0
-DEFAULT_BOTTOM_EXCLUSION_FRACTION = 2.0 / 11.0
+# Measured from 30 uncompressed 1280x720 camera frames on 2026-08-07.
+# The tolerances deliberately exceed the observed frame-to-frame variation
+# while remaining far enough apart that the three classes cannot overlap.
+DEFAULT_CUP_TARGET_AREA = 93300
+DEFAULT_CUP_AREA_TOLERANCE = 4000
+DEFAULT_BIG_GUY_TARGET_AREA = 33850
+DEFAULT_BIG_GUY_AREA_TOLERANCE = 3000
+DEFAULT_LITTLE_GUY_TARGET_AREA = 15850
+DEFAULT_LITTLE_GUY_AREA_TOLERANCE = 1500
 
-# Figure 2 starts at 8:00, ends at 3:30, and spaces boundaries by 15 degrees.
-# With zero-based numbering, 8:00-8:30 is sector 0, 8:30-9:00 is sector 1,
-# and 9:00-9:30 is sector 2, matching the examples in the request.
-DEFAULT_SECTOR_START_CLOCK = 8.0
-DEFAULT_SECTOR_END_CLOCK = 3.5
+# Keep the original public defaults as aliases for the little-guy controls.
+DEFAULT_TARGET_OBJECT_AREA = DEFAULT_LITTLE_GUY_TARGET_AREA
+DEFAULT_OBJECT_AREA_TOLERANCE = DEFAULT_LITTLE_GUY_AREA_TOLERANCE
+
+# Cover the complete image clockwise from 12:00 with 15-degree sectors.
+# Sector 0 is 12:00-12:30, 6 is 3:00-3:30, 12 is 6:00-6:30, and
+# 18 is 9:00-9:30. Equal start/end clocks intentionally mean one full turn.
+DEFAULT_SECTOR_START_CLOCK = 12.0
+DEFAULT_SECTOR_END_CLOCK = 12.0
 DEFAULT_SECTOR_STEP_DEGREES = 15.0
+RADIAL_LINE_COLOR = (190, 170, 190)  # BGR soft creamy purple.
 
 # Reject connected gray regions smaller than this fraction of the valid ROI.
 DEFAULT_MIN_OBJECT_AREA_FRACTION = 0.0005
+
+
+def validate_gray_thresholds(
+    black_max_intensity: int,
+    gray_min_intensity: int,
+    gray_max_intensity: int,
+    gray_max_channel_spread: int,
+) -> None:
+    """Validate the four thresholds shared by the detector and tuner."""
+    threshold_values = (
+        black_max_intensity,
+        gray_min_intensity,
+        gray_max_intensity,
+        gray_max_channel_spread,
+    )
+    if not all(
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and 0 <= value <= 255
+        for value in threshold_values
+    ):
+        raise ValueError(
+            'intensity and channel thresholds must be integers in [0, 255]'
+        )
+    if not black_max_intensity < gray_min_intensity <= gray_max_intensity:
+        raise ValueError(
+            'thresholds must satisfy black_max < gray_min <= gray_max'
+        )
+
+
+def validate_rgb_thresholds(
+    red_min: int,
+    red_max: int,
+    green_min: int,
+    green_max: int,
+    blue_min: int,
+    blue_max: int,
+) -> None:
+    """Validate direct R/G/B inclusive channel ranges."""
+    values = (
+        red_min,
+        red_max,
+        green_min,
+        green_max,
+        blue_min,
+        blue_max,
+    )
+    if not all(
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and 0 <= value <= 255
+        for value in values
+    ):
+        raise ValueError('RGB thresholds must be integers in [0, 255]')
+    if not (
+        red_min <= red_max
+        and green_min <= green_max
+        and blue_min <= blue_max
+    ):
+        raise ValueError('each RGB minimum must be <= its maximum')
+
+
+def validate_area_thresholds(
+    target_area: int,
+    area_tolerance: int,
+) -> None:
+    """Validate an absolute pixel-area target and symmetric tolerance."""
+    if not (
+        isinstance(target_area, int)
+        and not isinstance(target_area, bool)
+        and target_area >= 0
+    ):
+        raise ValueError('target object area must be a non-negative integer')
+    if not (
+        isinstance(area_tolerance, int)
+        and not isinstance(area_tolerance, bool)
+        and area_tolerance >= 0
+    ):
+        raise ValueError(
+            'object area tolerance must be a non-negative integer'
+        )
 
 
 @dataclass
@@ -77,6 +176,7 @@ class ConnectedRegion:
     area: int
     centroid_x: float
     centroid_y: float
+    bounding_box: tuple[int, int, int, int]
 
 
 @dataclass
@@ -84,48 +184,109 @@ class DetectionResult:
     """Complete gray-object result for one image."""
 
     mask: np.ndarray
+    candidate_mask: np.ndarray
     area: int
+    candidate_area: int
     centroid: tuple[float, float] | None
+    bounding_box: tuple[int, int, int, int] | None
     sector: int
 
 
-def build_valid_mask(
-    height: int,
-    width: int,
-    side_valid_width_fraction: float =
-    DEFAULT_SIDE_VALID_WIDTH_FRACTION,
-    stem_top_fraction: float = DEFAULT_STEM_TOP_FRACTION,
-    bottom_exclusion_fraction: float =
-    DEFAULT_BOTTOM_EXCLUSION_FRACTION,
-) -> np.ndarray:
-    """Return the valid ROI outside the proportional red T in Figure 1."""
+@dataclass(frozen=True)
+class AreaTarget:
+    """A display label and its inclusive target pixel-area range."""
+
+    label: str
+    target_area: int
+    area_tolerance: int
+
+
+@dataclass
+class LabeledDetection:
+    """One connected color region classified by its pixel area."""
+
+    label: str
+    mask: np.ndarray
+    area: int
+    centroid: tuple[float, float]
+    bounding_box: tuple[int, int, int, int]
+    sector: int
+
+
+@dataclass
+class MultiDetectionResult:
+    """All classified objects found in one image."""
+
+    candidate_mask: np.ndarray
+    detections: tuple[LabeledDetection, ...]
+    largest_candidate_area: int
+
+
+@dataclass
+class _ConnectedComponent:
+    """Run-length representation of one connected region."""
+
+    runs: list[tuple[int, int, int]]
+    area: int
+    centroid_x: float
+    centroid_y: float
+    bounding_box: tuple[int, int, int, int]
+
+
+def validate_area_targets(
+    area_targets: tuple[AreaTarget, ...],
+) -> None:
+    """Validate named area ranges and guarantee they never overlap."""
+    if not area_targets:
+        raise ValueError('at least one area target must be supplied')
+    ranges = []
+    for target in area_targets:
+        if not target.label:
+            raise ValueError('area target labels must not be empty')
+        validate_area_thresholds(
+            target.target_area,
+            target.area_tolerance,
+        )
+        ranges.append((
+            max(0, target.target_area - target.area_tolerance),
+            target.target_area + target.area_tolerance,
+            target.label,
+        ))
+
+    ranges.sort()
+    for previous, current in zip(ranges, ranges[1:]):
+        if previous[1] >= current[0]:
+            raise ValueError(
+                f'area ranges for {previous[2]} and {current[2]} '
+                'must not overlap'
+            )
+
+
+def build_full_frame_mask(height: int, width: int) -> np.ndarray:
+    """Return a mask that makes every image pixel valid for detection."""
     if height <= 0 or width <= 0:
         raise ValueError('image height and width must be positive')
-    if not 0.0 < side_valid_width_fraction < 0.5:
-        raise ValueError(
-            'side_valid_width_fraction must be between 0 and 0.5'
-        )
-    if not 0.0 <= stem_top_fraction < 1.0:
-        raise ValueError('stem_top_fraction must be in [0, 1)')
-    if not 0.0 < bottom_exclusion_fraction < 1.0:
-        raise ValueError(
-            'bottom_exclusion_fraction must be between 0 and 1'
-        )
-    bottom_start_fraction = 1.0 - bottom_exclusion_fraction
-    if stem_top_fraction >= bottom_start_fraction:
-        raise ValueError(
-            'stem_top_fraction must be above the bottom exclusion'
-        )
+    return np.ones((height, width), dtype=bool)
 
-    left_stem = round(width * side_valid_width_fraction)
-    right_stem = round(width * (1.0 - side_valid_width_fraction))
-    stem_top = round(height * stem_top_fraction)
-    bottom_top = round(height * bottom_start_fraction)
 
-    valid = np.ones((height, width), dtype=bool)
-    valid[bottom_top:, :] = False
-    valid[stem_top:bottom_top, left_stem:right_stem] = False
-    return valid
+def orient_bgr_image(
+    bgr_image: np.ndarray,
+    flip_vertical: bool,
+    flip_horizontal: bool = False,
+) -> np.ndarray:
+    """Return an image with optional vertical and horizontal flips."""
+    if not isinstance(flip_vertical, bool):
+        raise ValueError('flip_vertical must be a boolean')
+    if not isinstance(flip_horizontal, bool):
+        raise ValueError('flip_horizontal must be a boolean')
+    axes = []
+    if flip_vertical:
+        axes.append(0)
+    if flip_horizontal:
+        axes.append(1)
+    if not axes:
+        return bgr_image
+    return np.flip(bgr_image, axis=tuple(axes)).copy()
 
 
 def threshold_gray(
@@ -163,6 +324,44 @@ def threshold_gray(
     return valid_mask & not_black & in_gray_range & neutral_color
 
 
+def threshold_rgb(
+    bgr_image: np.ndarray,
+    valid_mask: np.ndarray,
+    red_min: int,
+    red_max: int,
+    green_min: int,
+    green_max: int,
+    blue_min: int,
+    blue_max: int,
+) -> np.ndarray:
+    """Return pixels inside independent inclusive R/G/B ranges."""
+    if bgr_image.ndim != 3 or bgr_image.shape[2] != 3:
+        raise ValueError('bgr_image must have shape (height, width, 3)')
+    if valid_mask.shape != bgr_image.shape[:2]:
+        raise ValueError('valid_mask dimensions must match bgr_image')
+    validate_rgb_thresholds(
+        red_min,
+        red_max,
+        green_min,
+        green_max,
+        blue_min,
+        blue_max,
+    )
+
+    blue = bgr_image[:, :, 0]
+    green = bgr_image[:, :, 1]
+    red = bgr_image[:, :, 2]
+    return (
+        valid_mask
+        & (red >= red_min)
+        & (red <= red_max)
+        & (green >= green_min)
+        & (green <= green_max)
+        & (blue >= blue_min)
+        & (blue <= blue_max)
+    )
+
+
 def denoise_binary_mask(
     mask: np.ndarray,
     minimum_neighbors: int = 5,
@@ -183,12 +382,12 @@ def denoise_binary_mask(
     return neighbors >= minimum_neighbors
 
 
-def largest_connected_region(mask: np.ndarray) -> ConnectedRegion | None:
-    """Return the largest 8-connected region using row runs."""
+def _connected_components(mask: np.ndarray) -> list[_ConnectedComponent]:
+    """Describe all 8-connected regions using compact row runs."""
     if mask.ndim != 2:
         raise ValueError('mask must be a two-dimensional array')
     if not np.any(mask):
-        return None
+        return []
 
     parent: list[int] = []
     ranks: list[int] = []
@@ -271,6 +470,8 @@ def largest_connected_region(mask: np.ndarray) -> ConnectedRegion | None:
     areas: dict[int, int] = {}
     x_sums: dict[int, int] = {}
     y_sums: dict[int, int] = {}
+    runs_by_root: dict[int, list[tuple[int, int, int]]] = {}
+    bounds: dict[int, list[int]] = {}
     for row, start, end, label in all_runs:
         root = find(label)
         run_length = end - start + 1
@@ -280,20 +481,99 @@ def largest_connected_region(mask: np.ndarray) -> ConnectedRegion | None:
             + (start + end) * run_length // 2
         )
         y_sums[root] = y_sums.get(root, 0) + row * run_length
+        runs_by_root.setdefault(root, []).append((row, start, end))
+        if root not in bounds:
+            bounds[root] = [start, row, end, row]
+        else:
+            bounds[root][0] = min(bounds[root][0], start)
+            bounds[root][1] = min(bounds[root][1], row)
+            bounds[root][2] = max(bounds[root][2], end)
+            bounds[root][3] = max(bounds[root][3], row)
 
-    largest_root = max(areas, key=areas.get)
-    largest_mask = np.zeros(mask.shape, dtype=bool)
-    for row, start, end, label in all_runs:
-        if find(label) == largest_root:
-            largest_mask[row, start:end + 1] = True
+    components = [
+        _ConnectedComponent(
+            runs=runs_by_root[root],
+            area=area,
+            centroid_x=x_sums[root] / area,
+            centroid_y=y_sums[root] / area,
+            bounding_box=tuple(bounds[root]),
+        )
+        for root, area in areas.items()
+    ]
+    components.sort(key=lambda component: component.area, reverse=True)
+    return components
 
-    area = areas[largest_root]
-    return ConnectedRegion(
-        mask=largest_mask,
-        area=area,
-        centroid_x=x_sums[largest_root] / area,
-        centroid_y=y_sums[largest_root] / area,
+
+def _component_mask(
+    shape: tuple[int, int],
+    component: _ConnectedComponent,
+) -> np.ndarray:
+    """Expand one run-length component into a binary mask."""
+    selected_mask = np.zeros(shape, dtype=bool)
+    for row, start, end in component.runs:
+        selected_mask[row, start:end + 1] = True
+    return selected_mask
+
+
+def _select_connected_region(
+    mask: np.ndarray,
+    minimum_area: int,
+    target_area: int | None,
+    area_tolerance: int,
+) -> tuple[ConnectedRegion | None, int]:
+    """Select one area-matching 8-connected region."""
+    components = _connected_components(mask)
+    if not components:
+        return None, 0
+
+    largest_area = components[0].area
+    eligible = [
+        component
+        for component in components
+        if component.area >= minimum_area
+    ]
+    if target_area is not None:
+        minimum_target_area = max(0, target_area - area_tolerance)
+        maximum_target_area = target_area + area_tolerance
+        eligible = [
+            component
+            for component in eligible
+            if minimum_target_area
+            <= component.area
+            <= maximum_target_area
+        ]
+    if not eligible:
+        return None, largest_area
+
+    if target_area is None:
+        selected = eligible[0]
+    else:
+        selected = min(
+            eligible,
+            key=lambda component: (
+                abs(component.area - target_area),
+                -component.area,
+            ),
+        )
+    region = ConnectedRegion(
+        mask=_component_mask(mask.shape, selected),
+        area=selected.area,
+        centroid_x=selected.centroid_x,
+        centroid_y=selected.centroid_y,
+        bounding_box=selected.bounding_box,
     )
+    return region, selected.area
+
+
+def largest_connected_region(mask: np.ndarray) -> ConnectedRegion | None:
+    """Return the largest 8-connected region using row runs."""
+    region, _candidate_area = _select_connected_region(
+        mask,
+        minimum_area=1,
+        target_area=None,
+        area_tolerance=0,
+    )
+    return region
 
 
 def clock_to_image_angle(clock_hour: float) -> float:
@@ -352,28 +632,68 @@ def detect_gray_object(
     start_clock: float = DEFAULT_SECTOR_START_CLOCK,
     end_clock: float = DEFAULT_SECTOR_END_CLOCK,
     step_degrees: float = DEFAULT_SECTOR_STEP_DEGREES,
+    red_min: int | None = None,
+    red_max: int | None = None,
+    green_min: int | None = None,
+    green_max: int | None = None,
+    blue_min: int | None = None,
+    blue_max: int | None = None,
+    target_area: int | None = None,
+    area_tolerance: int = 0,
 ) -> DetectionResult:
     """Run threshold, connected-region, centroid, and sector processing."""
-    threshold_mask = threshold_gray(
-        bgr_image,
-        valid_mask,
-        black_max_intensity,
-        gray_min_intensity,
-        gray_max_intensity,
-        gray_max_channel_spread,
+    rgb_values = (
+        red_min,
+        red_max,
+        green_min,
+        green_max,
+        blue_min,
+        blue_max,
     )
+    if all(value is not None for value in rgb_values):
+        threshold_mask = threshold_rgb(
+            bgr_image,
+            valid_mask,
+            red_min,
+            red_max,
+            green_min,
+            green_max,
+            blue_min,
+            blue_max,
+        )
+    elif any(value is not None for value in rgb_values):
+        raise ValueError('all six RGB thresholds must be supplied together')
+    else:
+        threshold_mask = threshold_gray(
+            bgr_image,
+            valid_mask,
+            black_max_intensity,
+            gray_min_intensity,
+            gray_max_intensity,
+            gray_max_channel_spread,
+        )
     cleaned_mask = denoise_binary_mask(
         threshold_mask, denoise_minimum_neighbors
     )
     cleaned_mask &= valid_mask
-    region = largest_connected_region(cleaned_mask)
+    if target_area is not None:
+        validate_area_thresholds(target_area, area_tolerance)
+    region, candidate_area = _select_connected_region(
+        cleaned_mask,
+        minimum_area,
+        target_area,
+        area_tolerance,
+    )
 
     empty_mask = np.zeros(valid_mask.shape, dtype=bool)
-    if region is None or region.area < minimum_area:
+    if region is None:
         return DetectionResult(
             mask=empty_mask,
+            candidate_mask=threshold_mask,
             area=0,
+            candidate_area=candidate_area,
             centroid=None,
+            bounding_box=None,
             sector=-1,
         )
 
@@ -390,9 +710,126 @@ def detect_gray_object(
     )
     return DetectionResult(
         mask=region.mask,
+        candidate_mask=threshold_mask,
         area=region.area,
+        candidate_area=region.area,
         centroid=centroid,
+        bounding_box=region.bounding_box,
         sector=sector,
+    )
+
+
+def detect_labeled_objects(
+    bgr_image: np.ndarray,
+    valid_mask: np.ndarray,
+    minimum_area: int,
+    area_targets: tuple[AreaTarget, ...],
+    black_max_intensity: int = DEFAULT_BLACK_MAX_INTENSITY,
+    gray_min_intensity: int = DEFAULT_GRAY_MIN_INTENSITY,
+    gray_max_intensity: int = DEFAULT_GRAY_MAX_INTENSITY,
+    gray_max_channel_spread: int = DEFAULT_GRAY_MAX_CHANNEL_SPREAD,
+    denoise_minimum_neighbors: int = 5,
+    start_clock: float = DEFAULT_SECTOR_START_CLOCK,
+    end_clock: float = DEFAULT_SECTOR_END_CLOCK,
+    step_degrees: float = DEFAULT_SECTOR_STEP_DEGREES,
+    red_min: int | None = None,
+    red_max: int | None = None,
+    green_min: int | None = None,
+    green_max: int | None = None,
+    blue_min: int | None = None,
+    blue_max: int | None = None,
+) -> MultiDetectionResult:
+    """Classify every matching color region by its pixel-area range."""
+    validate_area_targets(area_targets)
+
+    rgb_values = (
+        red_min,
+        red_max,
+        green_min,
+        green_max,
+        blue_min,
+        blue_max,
+    )
+    if all(value is not None for value in rgb_values):
+        threshold_mask = threshold_rgb(
+            bgr_image,
+            valid_mask,
+            red_min,
+            red_max,
+            green_min,
+            green_max,
+            blue_min,
+            blue_max,
+        )
+    elif any(value is not None for value in rgb_values):
+        raise ValueError('all six RGB thresholds must be supplied together')
+    else:
+        threshold_mask = threshold_gray(
+            bgr_image,
+            valid_mask,
+            black_max_intensity,
+            gray_min_intensity,
+            gray_max_intensity,
+            gray_max_channel_spread,
+        )
+
+    cleaned_mask = denoise_binary_mask(
+        threshold_mask,
+        denoise_minimum_neighbors,
+    )
+    cleaned_mask &= valid_mask
+    components = _connected_components(cleaned_mask)
+    height, width = valid_mask.shape
+    detections = []
+    target_order = {
+        target.label: index
+        for index, target in enumerate(area_targets)
+    }
+    for component in components:
+        if component.area < minimum_area:
+            continue
+        matching_targets = [
+            target
+            for target in area_targets
+            if max(0, target.target_area - target.area_tolerance)
+            <= component.area
+            <= target.target_area + target.area_tolerance
+        ]
+        if not matching_targets:
+            continue
+        matched_target = min(
+            matching_targets,
+            key=lambda target: (
+                abs(component.area - target.target_area),
+                target_order[target.label],
+            ),
+        )
+        centroid = (component.centroid_x, component.centroid_y)
+        detections.append(LabeledDetection(
+            label=matched_target.label,
+            mask=_component_mask(valid_mask.shape, component),
+            area=component.area,
+            centroid=centroid,
+            bounding_box=component.bounding_box,
+            sector=sector_for_centroid(
+                component.centroid_x,
+                component.centroid_y,
+                (width - 1) / 2.0,
+                (height - 1) / 2.0,
+                start_clock,
+                end_clock,
+                step_degrees,
+            ),
+        ))
+
+    detections.sort(key=lambda detection: (
+        target_order[detection.label],
+        detection.centroid[0],
+    ))
+    return MultiDetectionResult(
+        candidate_mask=threshold_mask,
+        detections=tuple(detections),
+        largest_candidate_area=(components[0].area if components else 0),
     )
 
 
@@ -442,6 +879,22 @@ def _set_mask_color(
     """Set selected BGR pixels efficiently in place."""
     for channel_index, channel_value in enumerate(color):
         image[:, :, channel_index][mask] = channel_value
+
+
+def _blend_mask_color(
+    image: np.ndarray,
+    mask: np.ndarray,
+    color: tuple[int, int, int],
+    opacity: float,
+) -> None:
+    """Tint selected BGR pixels while preserving their camera color."""
+    if not np.any(mask):
+        return
+    original = image[mask].astype(np.float32)
+    overlay = np.asarray(color, dtype=np.float32)
+    image[mask] = np.rint(
+        original * (1.0 - opacity) + overlay * opacity
+    ).astype(np.uint8)
 
 
 def _draw_line(
@@ -543,14 +996,41 @@ _FONT_5X7 = {
     '9': (
         '01110', '10001', '10001', '01111', '00001', '00001', '01110',
     ),
+    'A': (
+        '01110', '10001', '10001', '11111', '10001', '10001', '10001',
+    ),
+    'B': (
+        '11110', '10001', '10001', '11110', '10001', '10001', '11110',
+    ),
     'C': (
         '01111', '10000', '10000', '10000', '10000', '10000', '01111',
+    ),
+    'D': (
+        '11110', '10001', '10001', '10001', '10001', '10001', '11110',
     ),
     'E': (
         '11111', '10000', '10000', '11110', '10000', '10000', '11111',
     ),
+    'G': (
+        '01111', '10000', '10000', '10111', '10001', '10001', '01110',
+    ),
+    'I': (
+        '11111', '00100', '00100', '00100', '00100', '00100', '11111',
+    ),
+    'K': (
+        '10001', '10010', '10100', '11000', '10100', '10010', '10001',
+    ),
+    'L': (
+        '10000', '10000', '10000', '10000', '10000', '10000', '11111',
+    ),
+    'N': (
+        '10001', '11001', '11001', '10101', '10011', '10011', '10001',
+    ),
     'O': (
         '01110', '10001', '10001', '10001', '10001', '10001', '01110',
+    ),
+    'P': (
+        '11110', '10001', '10001', '11110', '10000', '10000', '10000',
     ),
     'R': (
         '11110', '10001', '10001', '11110', '10100', '10010', '10001',
@@ -560,6 +1040,15 @@ _FONT_5X7 = {
     ),
     'T': (
         '11111', '00100', '00100', '00100', '00100', '00100', '00100',
+    ),
+    'U': (
+        '10001', '10001', '10001', '10001', '10001', '10001', '01110',
+    ),
+    'X': (
+        '10001', '10001', '01010', '00100', '01010', '10001', '10001',
+    ),
+    'Y': (
+        '10001', '10001', '01010', '00100', '00100', '00100', '00100',
     ),
 }
 
@@ -626,6 +1115,9 @@ def make_debug_image(
     end_clock: float = DEFAULT_SECTOR_END_CLOCK,
     step_degrees: float = DEFAULT_SECTOR_STEP_DEGREES,
     hatch_mask: np.ndarray | None = None,
+    candidate_mask: np.ndarray | None = None,
+    bounding_box: tuple[int, int, int, int] | None = None,
+    labeled_detections: tuple[LabeledDetection, ...] | None = None,
 ) -> np.ndarray:
     """Render ROI, detection, centroid, center, rays, and sector label."""
     debug = bgr_image.copy()
@@ -650,8 +1142,18 @@ def make_debug_image(
         )
     _set_mask_color(debug, hatch_mask, (0, 0, 255))
 
-    # Selected largest connected gray region.
-    _set_mask_color(debug, detected_mask, (0, 220, 0))
+    # Tint every pixel that passes the current color threshold. This gives
+    # immediate visual feedback while a slider is moving, even before the
+    # candidate is large enough to become the selected connected region.
+    if candidate_mask is not None:
+        _blend_mask_color(debug, candidate_mask, (0, 255, 0), 0.45)
+
+    # Every region that matches one of the named area ranges is solid green.
+    if labeled_detections is None:
+        _set_mask_color(debug, detected_mask, (0, 220, 0))
+    else:
+        for detection in labeled_detections:
+            _set_mask_color(debug, detection.mask, (0, 220, 0))
 
     start_angle, end_angle = sector_angle_range(
         start_clock, end_clock
@@ -664,18 +1166,7 @@ def make_debug_image(
         endpoint = _ray_endpoint(
             center, boundary_angle, width, height
         )
-        _draw_line(debug, center, endpoint, (255, 0, 255), 2)
-
-    # Highlight the two boundaries around the selected sector.
-    if sector >= 0:
-        for boundary_angle in (
-            start_angle + sector * step_degrees,
-            start_angle + (sector + 1) * step_degrees,
-        ):
-            endpoint = _ray_endpoint(
-                center, boundary_angle, width, height
-            )
-            _draw_line(debug, center, endpoint, (0, 255, 255), 3)
+        _draw_line(debug, center, endpoint, RADIAL_LINE_COLOR, 2)
 
     cross_size = max(8, min(width, height) // 45)
     _draw_circle(debug, center, cross_size // 2, (255, 255, 0), True)
@@ -694,7 +1185,7 @@ def make_debug_image(
         2,
     )
 
-    if centroid is not None:
+    if labeled_detections is None and centroid is not None:
         radius = max(7, min(width, height) // 55)
         _draw_circle(debug, centroid, radius, (0, 255, 255), False)
         _draw_line(
@@ -712,26 +1203,179 @@ def make_debug_image(
             2,
         )
 
-    label = f'SECTOR {sector}'
+    if labeled_detections is None and bounding_box is not None:
+        left, top, right, bottom = bounding_box
+        box_color = (0, 255, 255)
+        box_thickness = max(2, min(width, height) // 240)
+        _draw_line(
+            debug, (left, top), (right, top), box_color, box_thickness
+        )
+        _draw_line(
+            debug,
+            (right, top),
+            (right, bottom),
+            box_color,
+            box_thickness,
+        )
+        _draw_line(
+            debug,
+            (right, bottom),
+            (left, bottom),
+            box_color,
+            box_thickness,
+        )
+        _draw_line(
+            debug,
+            (left, bottom),
+            (left, top),
+            box_color,
+            box_thickness,
+        )
+        lock_scale = max(1, min(width, height) // 360)
+        _draw_text(
+            debug,
+            'LOCK',
+            (min(width - 1, left + 4), min(height - 1, top + 4)),
+            box_color,
+            lock_scale,
+        )
+
+    if labeled_detections is not None:
+        box_color = (0, 255, 255)
+        box_thickness = max(2, min(width, height) // 240)
+        annotation_scale = max(1, min(width, height) // 360)
+        for detection in labeled_detections:
+            radius = max(7, min(width, height) // 55)
+            _draw_circle(
+                debug,
+                detection.centroid,
+                radius,
+                box_color,
+                False,
+            )
+            _draw_line(
+                debug,
+                (
+                    detection.centroid[0] - radius,
+                    detection.centroid[1],
+                ),
+                (
+                    detection.centroid[0] + radius,
+                    detection.centroid[1],
+                ),
+                box_color,
+                2,
+            )
+            _draw_line(
+                debug,
+                (
+                    detection.centroid[0],
+                    detection.centroid[1] - radius,
+                ),
+                (
+                    detection.centroid[0],
+                    detection.centroid[1] + radius,
+                ),
+                box_color,
+                2,
+            )
+            left, top, right, bottom = detection.bounding_box
+            _draw_line(
+                debug,
+                (left, top),
+                (right, top),
+                box_color,
+                box_thickness,
+            )
+            _draw_line(
+                debug,
+                (right, top),
+                (right, bottom),
+                box_color,
+                box_thickness,
+            )
+            _draw_line(
+                debug,
+                (right, bottom),
+                (left, bottom),
+                box_color,
+                box_thickness,
+            )
+            _draw_line(
+                debug,
+                (left, bottom),
+                (left, top),
+                box_color,
+                box_thickness,
+            )
+
+            coordinate_text = (
+                f'X {int(round(detection.centroid[0]))} '
+                f'Y {int(round(detection.centroid[1]))}'
+            )
+            annotation_lines = (
+                detection.label.upper(),
+                coordinate_text,
+            )
+            name_width = (
+                max(len(line) for line in annotation_lines)
+                * 6
+                * annotation_scale
+            )
+            line_height = 8 * annotation_scale
+            name_height = len(annotation_lines) * line_height
+            name_x = min(
+                max(1, left + 4),
+                max(1, width - name_width - 2),
+            )
+            if top >= name_height + 6:
+                name_y = top - name_height - 4
+            else:
+                name_y = min(
+                    height - name_height - 2,
+                    bottom + 4,
+                )
+            debug[
+                max(0, name_y - 2):min(height, name_y + name_height + 2),
+                max(0, name_x - 2):min(width, name_x + name_width + 2),
+            ] = (0, 0, 0)
+            for line_index, line in enumerate(annotation_lines):
+                _draw_text(
+                    debug,
+                    line,
+                    (name_x, name_y + line_index * line_height),
+                    box_color,
+                    annotation_scale,
+                )
+
     scale = max(1, min(width, height) // 220)
-    label_width = len(label) * 6 * scale + 2 * scale
-    label_height = 9 * scale
-    x_end = min(width, scale + label_width)
-    y_end = min(height, scale + label_height)
-    debug[scale:y_end, scale:x_end] = (0, 0, 0)
-    label_color = (0, 255, 0) if sector >= 0 else (0, 0, 255)
-    _draw_text(
-        debug,
-        label,
-        (2 * scale, 2 * scale),
-        label_color,
-        scale,
-    )
+    if labeled_detections is None:
+        status_labels = [(f'SECTOR {sector}', sector)]
+    else:
+        status_labels = [(f'LITTLE GUY SECTION {sector}', sector)]
+    for line_index, (label, label_sector) in enumerate(status_labels):
+        label_width = len(label) * 6 * scale + 2 * scale
+        label_height = 9 * scale
+        label_x = scale
+        label_y = scale + line_index * label_height
+        x_end = min(width, label_x + label_width)
+        y_end = min(height, label_y + label_height)
+        debug[label_y:y_end, label_x:x_end] = (0, 0, 0)
+        label_color = (
+            (0, 255, 0) if label_sector >= 0 else (0, 0, 255)
+        )
+        _draw_text(
+            debug,
+            label,
+            (label_x + scale, label_y + scale),
+            label_color,
+            scale,
+        )
     return debug
 
 
 class GrayObjectDetector(Node):
-    """Detect the largest gray region and publish its radial sector."""
+    """Classify color regions by area and publish the little-guy sector."""
 
     def __init__(self) -> None:
         super().__init__('gray_object_detector')
@@ -742,6 +1386,43 @@ class GrayObjectDetector(Node):
         )
         self.declare_parameter('sector_topic', '/gray_object/sector')
         self.declare_parameter('publish_debug_image', True)
+        self.declare_parameter('flip_vertical', True)
+        self.declare_parameter('flip_horizontal', True)
+        self.declare_parameter(
+            'rgb_threshold_topic', '/gray_object/rgb_thresholds'
+        )
+        self.declare_parameter(
+            'area_threshold_topic', '/gray_object/area_thresholds'
+        )
+        self.declare_parameter(
+            'candidate_area_topic', '/gray_object/candidate_area'
+        )
+
+        self.declare_parameter('use_rgb_thresholds', True)
+        self.declare_parameter('red_min', DEFAULT_RED_MIN)
+        self.declare_parameter('red_max', DEFAULT_RED_MAX)
+        self.declare_parameter('green_min', DEFAULT_GREEN_MIN)
+        self.declare_parameter('green_max', DEFAULT_GREEN_MAX)
+        self.declare_parameter('blue_min', DEFAULT_BLUE_MIN)
+        self.declare_parameter('blue_max', DEFAULT_BLUE_MAX)
+        self.declare_parameter(
+            'target_object_area', DEFAULT_TARGET_OBJECT_AREA
+        )
+        self.declare_parameter(
+            'object_area_tolerance', DEFAULT_OBJECT_AREA_TOLERANCE
+        )
+        self.declare_parameter(
+            'cup_target_area', DEFAULT_CUP_TARGET_AREA
+        )
+        self.declare_parameter(
+            'cup_area_tolerance', DEFAULT_CUP_AREA_TOLERANCE
+        )
+        self.declare_parameter(
+            'big_guy_target_area', DEFAULT_BIG_GUY_TARGET_AREA
+        )
+        self.declare_parameter(
+            'big_guy_area_tolerance', DEFAULT_BIG_GUY_AREA_TOLERANCE
+        )
 
         self.declare_parameter(
             'black_max_intensity', DEFAULT_BLACK_MAX_INTENSITY
@@ -760,18 +1441,6 @@ class GrayObjectDetector(Node):
         self.declare_parameter(
             'min_object_area_fraction',
             DEFAULT_MIN_OBJECT_AREA_FRACTION,
-        )
-
-        self.declare_parameter(
-            'side_valid_width_fraction',
-            DEFAULT_SIDE_VALID_WIDTH_FRACTION,
-        )
-        self.declare_parameter(
-            'stem_top_fraction', DEFAULT_STEM_TOP_FRACTION
-        )
-        self.declare_parameter(
-            'bottom_exclusion_fraction',
-            DEFAULT_BOTTOM_EXCLUSION_FRACTION,
         )
 
         self.declare_parameter(
@@ -802,15 +1471,6 @@ class GrayObjectDetector(Node):
         self._minimum_area_fraction = self.get_parameter(
             'min_object_area_fraction'
         ).value
-        self._side_width_fraction = self.get_parameter(
-            'side_valid_width_fraction'
-        ).value
-        self._stem_top_fraction = self.get_parameter(
-            'stem_top_fraction'
-        ).value
-        self._bottom_fraction = self.get_parameter(
-            'bottom_exclusion_fraction'
-        ).value
         self._start_clock = self.get_parameter(
             'sector_start_clock'
         ).value
@@ -823,16 +1483,64 @@ class GrayObjectDetector(Node):
         self._publish_debug = self.get_parameter(
             'publish_debug_image'
         ).value
+        self._flip_vertical = self.get_parameter(
+            'flip_vertical'
+        ).value
+        self._flip_horizontal = self.get_parameter(
+            'flip_horizontal'
+        ).value
+        self._use_rgb_thresholds = self.get_parameter(
+            'use_rgb_thresholds'
+        ).value
+        self._red_min = self.get_parameter('red_min').value
+        self._red_max = self.get_parameter('red_max').value
+        self._green_min = self.get_parameter('green_min').value
+        self._green_max = self.get_parameter('green_max').value
+        self._blue_min = self.get_parameter('blue_min').value
+        self._blue_max = self.get_parameter('blue_max').value
+        self._target_area = self.get_parameter(
+            'target_object_area'
+        ).value
+        self._area_tolerance = self.get_parameter(
+            'object_area_tolerance'
+        ).value
+        self._cup_target_area = self.get_parameter(
+            'cup_target_area'
+        ).value
+        self._cup_area_tolerance = self.get_parameter(
+            'cup_area_tolerance'
+        ).value
+        self._big_guy_target_area = self.get_parameter(
+            'big_guy_target_area'
+        ).value
+        self._big_guy_area_tolerance = self.get_parameter(
+            'big_guy_area_tolerance'
+        ).value
         self._validate_parameters()
+        self.add_on_set_parameters_callback(
+            self._on_parameter_update
+        )
 
         image_topic = self.get_parameter('image_topic').value
         sector_topic = self.get_parameter('sector_topic').value
         debug_topic = self.get_parameter('debug_image_topic').value
+        rgb_threshold_topic = self.get_parameter(
+            'rgb_threshold_topic'
+        ).value
+        area_threshold_topic = self.get_parameter(
+            'area_threshold_topic'
+        ).value
+        candidate_area_topic = self.get_parameter(
+            'candidate_area_topic'
+        ).value
         self._sector_publisher = self.create_publisher(
             Int32, sector_topic, 10
         )
         self._debug_publisher = self.create_publisher(
             Image, debug_topic, qos_profile_sensor_data
+        )
+        self._candidate_area_publisher = self.create_publisher(
+            Int32, candidate_area_topic, 10
         )
         latest_image_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -846,43 +1554,95 @@ class GrayObjectDetector(Node):
             self._on_image,
             latest_image_qos,
         )
+        self._rgb_threshold_subscription = self.create_subscription(
+            Int32MultiArray,
+            rgb_threshold_topic,
+            self._on_rgb_thresholds,
+            10,
+        )
+        self._area_threshold_subscription = self.create_subscription(
+            Int32MultiArray,
+            area_threshold_topic,
+            self._on_area_thresholds,
+            10,
+        )
 
         self._cached_shape: tuple[int, int] | None = None
         self._valid_mask: np.ndarray | None = None
         self._hatch_mask: np.ndarray | None = None
         self._valid_area = 0
-        self._last_sector: int | None = None
+        self._last_detection_state: tuple[tuple[str, int], ...] | None = None
         self._reported_image_error = False
 
         self.get_logger().info(
             f'Listening for {image_topic}; publishing sector on '
             f'{sector_topic} and debug image on {debug_topic}'
         )
-        self.get_logger().info(
-            'Gray thresholds: black <= '
-            f'{self._black_max}, gray {self._gray_min}..'
-            f'{self._gray_max}, channel spread <= {self._gray_spread}'
+        if self._use_rgb_thresholds:
+            self.get_logger().info(
+                'Direct RGB thresholds: '
+                f'R {self._red_min}..{self._red_max}, '
+                f'G {self._green_min}..{self._green_max}, '
+                f'B {self._blue_min}..{self._blue_max}'
+            )
+        else:
+            self.get_logger().info(
+                'Gray thresholds: black <= '
+                f'{self._black_max}, gray {self._gray_min}..'
+                f'{self._gray_max}, channel spread <= {self._gray_spread}'
+            )
+        for target in self._area_targets():
+            self.get_logger().info(
+                f'{target.label} area: {target.target_area} +/- '
+                f'{target.area_tolerance} px'
+            )
+        if self._flip_vertical:
+            self.get_logger().info('Image is flipped vertically')
+        if self._flip_horizontal:
+            self.get_logger().info('Image is flipped horizontally')
+
+    def _area_targets(self) -> tuple[AreaTarget, ...]:
+        """Return named targets in display priority order."""
+        return (
+            AreaTarget(
+                'cup',
+                self._cup_target_area,
+                self._cup_area_tolerance,
+            ),
+            AreaTarget(
+                'big guy',
+                self._big_guy_target_area,
+                self._big_guy_area_tolerance,
+            ),
+            AreaTarget(
+                'little guy',
+                self._target_area,
+                self._area_tolerance,
+            ),
         )
 
     def _validate_parameters(self) -> None:
-        threshold_values = (
+        validate_gray_thresholds(
             self._black_max,
             self._gray_min,
             self._gray_max,
             self._gray_spread,
         )
-        if not all(
-            isinstance(value, int) and 0 <= value <= 255
-            for value in threshold_values
-        ):
-            raise ValueError(
-                'intensity and channel thresholds must be integers in '
-                '[0, 255]'
-            )
-        if not self._black_max < self._gray_min <= self._gray_max:
-            raise ValueError(
-                'thresholds must satisfy black_max < gray_min <= gray_max'
-            )
+        validate_rgb_thresholds(
+            self._red_min,
+            self._red_max,
+            self._green_min,
+            self._green_max,
+            self._blue_min,
+            self._blue_max,
+        )
+        if not isinstance(self._use_rgb_thresholds, bool):
+            raise ValueError('use_rgb_thresholds must be a boolean')
+        if not isinstance(self._flip_vertical, bool):
+            raise ValueError('flip_vertical must be a boolean')
+        if not isinstance(self._flip_horizontal, bool):
+            raise ValueError('flip_horizontal must be a boolean')
+        validate_area_targets(self._area_targets())
         if not (
             isinstance(self._denoise_neighbors, int)
             and 1 <= self._denoise_neighbors <= 9
@@ -895,14 +1655,6 @@ class GrayObjectDetector(Node):
                 'min_object_area_fraction must be in [0, 1)'
             )
 
-        # Also validates all ROI relationships.
-        build_valid_mask(
-            11,
-            20,
-            self._side_width_fraction,
-            self._stem_top_fraction,
-            self._bottom_fraction,
-        )
         if self._step_degrees <= 0.0:
             raise ValueError('sector_step_degrees must be positive')
         start_angle, end_angle = sector_angle_range(
@@ -916,6 +1668,195 @@ class GrayObjectDetector(Node):
                 'clock range must contain a whole number of sector steps'
             )
 
+    def _on_parameter_update(self, parameters) -> SetParametersResult:
+        """Apply live threshold updates from the color-tuner window."""
+        threshold_names = {
+            'black_max_intensity',
+            'gray_min_intensity',
+            'gray_max_intensity',
+            'gray_max_channel_spread',
+            'use_rgb_thresholds',
+            'red_min',
+            'red_max',
+            'green_min',
+            'green_max',
+            'blue_min',
+            'blue_max',
+            'target_object_area',
+            'object_area_tolerance',
+            'cup_target_area',
+            'cup_area_tolerance',
+            'big_guy_target_area',
+            'big_guy_area_tolerance',
+        }
+        updates = {
+            parameter.name: parameter.value
+            for parameter in parameters
+            if parameter.name in threshold_names
+        }
+        if not updates:
+            return SetParametersResult(successful=True)
+
+        black_max = updates.get(
+            'black_max_intensity', self._black_max
+        )
+        gray_min = updates.get(
+            'gray_min_intensity', self._gray_min
+        )
+        gray_max = updates.get(
+            'gray_max_intensity', self._gray_max
+        )
+        gray_spread = updates.get(
+            'gray_max_channel_spread', self._gray_spread
+        )
+        use_rgb_thresholds = updates.get(
+            'use_rgb_thresholds', self._use_rgb_thresholds
+        )
+        red_min = updates.get('red_min', self._red_min)
+        red_max = updates.get('red_max', self._red_max)
+        green_min = updates.get('green_min', self._green_min)
+        green_max = updates.get('green_max', self._green_max)
+        blue_min = updates.get('blue_min', self._blue_min)
+        blue_max = updates.get('blue_max', self._blue_max)
+        target_area = updates.get(
+            'target_object_area', self._target_area
+        )
+        area_tolerance = updates.get(
+            'object_area_tolerance', self._area_tolerance
+        )
+        cup_target_area = updates.get(
+            'cup_target_area', self._cup_target_area
+        )
+        cup_area_tolerance = updates.get(
+            'cup_area_tolerance', self._cup_area_tolerance
+        )
+        big_guy_target_area = updates.get(
+            'big_guy_target_area', self._big_guy_target_area
+        )
+        big_guy_area_tolerance = updates.get(
+            'big_guy_area_tolerance', self._big_guy_area_tolerance
+        )
+        try:
+            validate_gray_thresholds(
+                black_max,
+                gray_min,
+                gray_max,
+                gray_spread,
+            )
+            validate_rgb_thresholds(
+                red_min,
+                red_max,
+                green_min,
+                green_max,
+                blue_min,
+                blue_max,
+            )
+            if not isinstance(use_rgb_thresholds, bool):
+                raise ValueError('use_rgb_thresholds must be a boolean')
+            validate_area_targets((
+                AreaTarget(
+                    'cup',
+                    cup_target_area,
+                    cup_area_tolerance,
+                ),
+                AreaTarget(
+                    'big guy',
+                    big_guy_target_area,
+                    big_guy_area_tolerance,
+                ),
+                AreaTarget(
+                    'little guy',
+                    target_area,
+                    area_tolerance,
+                ),
+            ))
+        except ValueError as error:
+            return SetParametersResult(
+                successful=False,
+                reason=str(error),
+            )
+
+        self._black_max = black_max
+        self._gray_min = gray_min
+        self._gray_max = gray_max
+        self._gray_spread = gray_spread
+        self._use_rgb_thresholds = use_rgb_thresholds
+        self._target_area = target_area
+        self._area_tolerance = area_tolerance
+        self._cup_target_area = cup_target_area
+        self._cup_area_tolerance = cup_area_tolerance
+        self._big_guy_target_area = big_guy_target_area
+        self._big_guy_area_tolerance = big_guy_area_tolerance
+        self._set_rgb_thresholds((
+            red_min,
+            red_max,
+            green_min,
+            green_max,
+            blue_min,
+            blue_max,
+        ))
+        self.get_logger().debug(
+            'Updated live color thresholds'
+        )
+        return SetParametersResult(successful=True)
+
+    def _set_rgb_thresholds(self, values) -> None:
+        (
+            self._red_min,
+            self._red_max,
+            self._green_min,
+            self._green_max,
+            self._blue_min,
+            self._blue_max,
+        ) = values
+
+    def _on_rgb_thresholds(self, message: Int32MultiArray) -> None:
+        """Apply the GUI's low-latency direct RGB threshold message."""
+        values = tuple(message.data)
+        if len(values) != 6:
+            self.get_logger().warning(
+                'Ignoring RGB thresholds: expected six integer values'
+            )
+            return
+        try:
+            validate_rgb_thresholds(*values)
+        except ValueError as error:
+            self.get_logger().warning(
+                f'Ignoring invalid RGB thresholds: {error}'
+            )
+            return
+        self._set_rgb_thresholds(values)
+        self._use_rgb_thresholds = True
+
+    def _on_area_thresholds(self, message: Int32MultiArray) -> None:
+        """Apply the GUI's target area and symmetric tolerance."""
+        values = tuple(message.data)
+        if len(values) != 2:
+            self.get_logger().warning(
+                'Ignoring area thresholds: expected target and tolerance'
+            )
+            return
+        try:
+            validate_area_targets((
+                AreaTarget(
+                    'cup',
+                    self._cup_target_area,
+                    self._cup_area_tolerance,
+                ),
+                AreaTarget(
+                    'big guy',
+                    self._big_guy_target_area,
+                    self._big_guy_area_tolerance,
+                ),
+                AreaTarget('little guy', values[0], values[1]),
+            ))
+        except ValueError as error:
+            self.get_logger().warning(
+                f'Ignoring invalid area thresholds: {error}'
+            )
+            return
+        self._target_area, self._area_tolerance = values
+
     def _geometry_for_shape(
         self,
         height: int,
@@ -923,13 +1864,7 @@ class GrayObjectDetector(Node):
     ) -> np.ndarray:
         shape = (height, width)
         if self._cached_shape != shape:
-            self._valid_mask = build_valid_mask(
-                height,
-                width,
-                self._side_width_fraction,
-                self._stem_top_fraction,
-                self._bottom_fraction,
-            )
+            self._valid_mask = build_full_frame_mask(height, width)
             self._valid_area = int(np.count_nonzero(self._valid_mask))
             hatch_spacing = max(10, min(width, height) // 24)
             row_positions = np.arange(height)[:, np.newaxis]
@@ -952,6 +1887,11 @@ class GrayObjectDetector(Node):
     def _on_image(self, message: Image) -> None:
         try:
             bgr_image = image_message_to_bgr(message)
+            bgr_image = orient_bgr_image(
+                bgr_image,
+                self._flip_vertical,
+                self._flip_horizontal,
+            )
         except ValueError as error:
             if not self._reported_image_error:
                 self.get_logger().error(str(error))
@@ -966,10 +1906,11 @@ class GrayObjectDetector(Node):
                 self._valid_area * self._minimum_area_fraction
             ),
         )
-        result = detect_gray_object(
+        result = detect_labeled_objects(
             bgr_image,
             valid_mask,
             minimum_area,
+            self._area_targets(),
             self._black_max,
             self._gray_min,
             self._gray_max,
@@ -978,38 +1919,81 @@ class GrayObjectDetector(Node):
             self._start_clock,
             self._end_clock,
             self._step_degrees,
+            red_min=(
+                self._red_min if self._use_rgb_thresholds else None
+            ),
+            red_max=(
+                self._red_max if self._use_rgb_thresholds else None
+            ),
+            green_min=(
+                self._green_min if self._use_rgb_thresholds else None
+            ),
+            green_max=(
+                self._green_max if self._use_rgb_thresholds else None
+            ),
+            blue_min=(
+                self._blue_min if self._use_rgb_thresholds else None
+            ),
+            blue_max=(
+                self._blue_max if self._use_rgb_thresholds else None
+            ),
         )
 
+        little_guy = next(
+            (
+                detection
+                for detection in result.detections
+                if detection.label == 'little guy'
+            ),
+            None,
+        )
+        primary_sector = little_guy.sector if little_guy else -1
+
+        area_message = Int32()
+        area_message.data = (
+            little_guy.area if little_guy is not None else 0
+        )
+        self._candidate_area_publisher.publish(area_message)
+
         sector_message = Int32()
-        sector_message.data = result.sector
+        sector_message.data = primary_sector
         self._sector_publisher.publish(sector_message)
 
-        if result.sector != self._last_sector:
-            if result.centroid is None:
+        detection_state = tuple(
+            (detection.label, detection.sector)
+            for detection in result.detections
+        )
+        if detection_state != self._last_detection_state:
+            if not result.detections:
                 self.get_logger().info(
-                    f'No gray object (minimum area {minimum_area}); '
+                    f'No labeled object (minimum area {minimum_area}); '
                     'publishing sector -1'
                 )
             else:
-                self.get_logger().info(
-                    f'Gray object area={result.area}, centroid='
-                    f'({result.centroid[0]:.1f}, '
-                    f'{result.centroid[1]:.1f}), '
-                    f'sector={result.sector}'
-                )
-            self._last_sector = result.sector
+                for detection in result.detections:
+                    self.get_logger().info(
+                        f'{detection.label}: area={detection.area}, '
+                        f'centroid=({detection.centroid[0]:.1f}, '
+                        f'{detection.centroid[1]:.1f}), '
+                        f'sector={detection.sector}'
+                    )
+            self._last_detection_state = detection_state
 
         if self._publish_debug:
+            empty_mask = np.zeros(valid_mask.shape, dtype=bool)
             debug = make_debug_image(
                 bgr_image,
                 valid_mask,
-                result.mask,
-                result.centroid,
-                result.sector,
+                empty_mask,
+                None,
+                primary_sector,
                 self._start_clock,
                 self._end_clock,
                 self._step_degrees,
                 self._hatch_mask,
+                result.candidate_mask,
+                None,
+                result.detections,
             )
             debug_message = Image()
             debug_message.header = message.header

@@ -355,7 +355,7 @@ show:
           target: servo2
           command: move_to
           args:
-            target_degree: 170
+            target_degree: 0
             step_delay_ms: 10
           timeout_s: 5.0
 

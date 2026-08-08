@@ -3,11 +3,37 @@ gray_object_detector:
     image_topic: /camera/image_raw
     sector_topic: /gray_object/sector
     debug_image_topic: /gray_object/debug_image
+    rgb_threshold_topic: /gray_object/rgb_thresholds
+    area_threshold_topic: /gray_object/area_thresholds
+    candidate_area_topic: /gray_object/candidate_area
     publish_debug_image: true
+    # Swap both axes before detection and debug rendering (180-degree view).
+    flip_vertical: true
+    flip_horizontal: true
 
-    # EASY-TO-TUNE BLACK / GRAY THRESHOLDS
+    # DIRECT RGB COLOR THRESHOLDS (inclusive, 0..255)
+    # These six values are controlled live by the tuner window.
+    use_rgb_thresholds: true
+    red_min: 55
+    red_max: 225
+    green_min: 55
+    green_max: 225
+    blue_min: 55
+    blue_max: 225
+
+    # Named object areas measured from 30 uncompressed 1280x720 frames.
+    # Every connected region matching RGB and one of these ranges is boxed.
+    cup_target_area: 93300
+    cup_area_tolerance: 4000
+    big_guy_target_area: 33850
+    big_guy_area_tolerance: 3000
+    # The original live area controls continue to tune little guy.
+    target_object_area: 15850
+    object_area_tolerance: 1500
+
+    # Legacy gray-mode thresholds, used only when use_rgb_thresholds=false.
     # Intensity is the average of B, G, and R: 0=black, 255=white.
-    # Black background is <= 45. Gray candidates are 45 through 220.
+    # Black background is <= 45. Gray candidates are 55 through 225.
     # The 46..54 gap rejects ambiguous very-dark pixels.
     black_max_intensity: 45
     gray_min_intensity: 55
@@ -21,13 +47,8 @@ gray_object_detector:
     # Smallest accepted connected region, as a fraction of the valid ROI.
     min_object_area_fraction: 0.0005
 
-    # Figure 1 proportions: width=20, height=11, each valid side=7,
-    # center-stem top=3.4, and excluded bottom height=2.
-    side_valid_width_fraction: 0.35       # 7 / 20
-    stem_top_fraction: 0.3090909091       # 3.4 / 11
-    bottom_exclusion_fraction: 0.1818181818  # 2 / 11
-
-    # Figure 2 radial boundaries. Decimal .5 means the half-hour direction.
-    sector_start_clock: 8.0
-    sector_end_clock: 3.5
+    # Full 360-degree radial grid, clockwise from 12:00. Equal start/end
+    # values intentionally produce one complete turn (24 sectors).
+    sector_start_clock: 12.0
+    sector_end_clock: 12.0
     sector_step_degrees: 15.0
