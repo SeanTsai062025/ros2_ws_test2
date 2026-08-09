@@ -350,6 +350,8 @@ servo2 100 10
 
 to the front
 ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [-0.002978, 0.181086, -0.945047, -0.021182, -2.687701, -3.156165]}}"
+***change to 
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [-0.001125, 0.145178, -0.893697, -0.020146, -2.60011, -3.168821]}}"
 
 open gripper
 servo2 0 10
@@ -380,6 +382,8 @@ ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotSta
 
 open position
 ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [-0.630492, 0.177763, -0.882474, -1.378346, -3.064382, -2.633845]}}"
+*****change the open positin
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [-0.581647, 0.042363, -1.035795, -1.192734, -2.97343, -2.673729]}}"
 
 open
 servo2 0 10
@@ -484,9 +488,14 @@ ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotSta
 
 grip
 servo2 65
+***
+change to 70
 
 move the big to the right
 ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [-0.729254, -0.229957, -1.24163, -0.804253, -2.738015, -2.785709]}}"
+******
+change to 
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [-0.576905, -0.249834, -1.260012, -0.647672, -2.68292, -2.845534]}}"
 
 open griper
 servo2 0 10
@@ -505,6 +514,9 @@ servo2 100 10
 
 on the top of the rail1
 ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [0.558676, -0.174938, -1.300956, 0.482795, -2.7458, -3.390098]}}"
+*****
+change to 
+ros2 topic pub -1 /rviz/moveit/update_custom_goal_state moveit_msgs/msg/RobotState "{joint_state: {name: [base, part1, part2, part3, part4, part5], position: [0.732898, -0.101192, -1.249223, 0.660097, -2.803682, -3.455292]}}"
 
 open gripper
 servo2 0 10
