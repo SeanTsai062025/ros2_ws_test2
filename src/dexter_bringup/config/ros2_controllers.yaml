@@ -63,4 +63,4 @@ arm_controller:
       part2: {trajectory: 0.10, goal: 0.02}
       part3: {trajectory: 0.10, goal: 0.02}
       part4: {trajectory: 0.10, goal: 0.02}
-      part5: {trajectory: 0.08, goal: 0.015}
+      part5: {trajectory: 0.08, goal: 0.03}

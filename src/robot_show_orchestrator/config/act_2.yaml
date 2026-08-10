@@ -854,7 +854,7 @@ show:
         target: arm
         command: joint_move
         args:
-          positions: [-0.622234, -0.249016, -0.535513, -1.194971, -2.26312, -2.099253]
+          positions: [-0.39307, -0.321701, -0.595555, -0.997382, -2.060839, -2.255719]
           speed_scaling: 0.7
         timeout_s: 25.0
 
@@ -863,7 +863,7 @@ show:
         target: arm
         command: joint_move
         args:
-          positions: [-0.659433, -0.239953, -1.082773, -0.814211, -2.600583, -2.70134]
+          positions: [-0.53729, -0.310363, -1.059431, -0.729152, -2.473876, -2.650335]
           speed_scaling: 0.7
         timeout_s: 25.0
 
